@@ -72,6 +72,12 @@ run-debug-all:
 	@echo "Running with ALL debugging enabled..."
 	OTSU_DEBUG_FORMAT=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_MEMORY=true OTSU_DEBUG_PERFORMANCE=true OTSU_DEBUG_GUI=true OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true go run -tags matprofile .
 
+# Safe debug target - excluding pixel analysis to avoid segfaults
+run-debug-safe:
+	@echo "Running with safe debugging (no pixel analysis)..."
+	@echo "Enables triclass, image conversion, and format debugging without pixel-level analysis"
+	OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_FORMAT=true go run -tags matprofile .
+
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
@@ -203,6 +209,7 @@ dev: check-deps deps build-profile
 	@echo "Run 'make run-profile' to start with memory profiling"
 	@echo "Run 'make run-debug-format' for format detection debugging"
 	@echo "Run 'make check-leaks' for memory leak detection"
+	@echo "Run 'make run-debug-safe' for safe debugging without pixel analysis"
 
 # Production workflow target  
 prod: check-deps deps test build
@@ -218,6 +225,7 @@ help:
 	@echo "  build-profile        - Build with memory profiling enabled"
 	@echo "  run-profile          - Run with memory profiling"
 	@echo "  run-debug-format     - Run with format detection debugging"
+	@echo "  run-debug-safe       - Run with safe debugging (no pixel analysis)"
 	@echo "  check-leaks          - Run with memory leak detection"
 	@echo "  profile              - Start with full profiling server"
 	@echo "  prod                 - Full production build workflow"
@@ -236,6 +244,7 @@ help:
 	@echo "  run-debug-triclass   - Iterative Triclass algorithm debugging"
 	@echo "  run-debug-pixels     - Pixel-level analysis and sampling"
 	@echo "  run-debug-comprehensive- Multiple debug categories for complex issues"
+	@echo "  run-debug-safe       - Safe debugging without pixel analysis"
 	@echo "  run-debug-all        - All debugging enabled"
 	@echo ""
 	@echo "🌍 CROSS-PLATFORM:"
@@ -256,12 +265,16 @@ help:
 	@echo "  vet                  - Vet code"
 	@echo ""
 	@echo "🚀 QUICK START:"
-	@echo "  make dev && make run-debug-comprehensive"
+	@echo "  make dev && make run-debug-safe"
 	@echo ""
 	@echo "📈 DEBUGGING:"
 	@echo "  profile-count        - Get current MatProfile count"
 	@echo "  run-debug-format     - Focus on image format detection issues"
-	@echo "  run-debug-comprehensive- Focus on complex algorithm/display issues"
+	@echo "  run-debug-safe       - Safe comprehensive debugging"
+	@echo ""
+	@echo "⚠️  TROUBLESHOOTING:"
+	@echo "  Use 'run-debug-safe' instead of 'run-debug-comprehensive' to avoid segfaults"
+	@echo "  Use 'run-debug-triclass' only for algorithm logic debugging"
 
 # Default target
 .DEFAULT_GOAL := help

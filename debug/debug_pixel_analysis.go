@@ -136,18 +136,9 @@ func (dm *Manager) LogMatPixelAnalysis(analysisType string, mat gocv.Mat) {
 		return
 	}
 
-	// Safety check - disable pixel analysis if Mat appears invalid
-	// This prevents segfaults when accessing invalid Mat memory
-	defer func() {
-		if r := recover(); r != nil {
-			LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat access caused panic: %v", analysisType, r))
-		}
-	}()
-
-	// Check if Mat is valid and not empty
-	if mat.Empty() || mat.Rows() <= 0 || mat.Cols() <= 0 {
-		LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat is empty or invalid (rows: %d, cols: %d)",
-			analysisType, mat.Rows(), mat.Cols()))
+	// Essential safety checks first
+	if mat.Empty() {
+		LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat is empty - skipping pixel analysis", analysisType))
 		return
 	}
 
@@ -155,74 +146,39 @@ func (dm *Manager) LogMatPixelAnalysis(analysisType string, mat gocv.Mat) {
 	cols := mat.Cols()
 	channels := mat.Channels()
 
-	// Sample pixels from different regions
-	samplePoints := []image.Point{
-		{0, 0},               // Top-left
-		{cols / 2, 0},        // Top-center
-		{cols - 1, 0},        // Top-right
-		{0, rows / 2},        // Middle-left
-		{cols / 2, rows / 2}, // Center
-		{cols - 1, rows / 2}, // Middle-right
-		{0, rows - 1},        // Bottom-left
-		{cols / 2, rows - 1}, // Bottom-center
-		{cols - 1, rows - 1}, // Bottom-right
+	if rows <= 0 || cols <= 0 {
+		LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat has invalid dimensions (%dx%d) - skipping pixel analysis",
+			analysisType, cols, rows))
+		return
 	}
 
-	samples := []string{}
-	blackCount := 0
-	whiteCount := 0
-	totalSamples := 0
+	// Additional validation - check Mat type
+	matType := mat.Type()
+	if matType < 0 {
+		LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat has invalid type (%d) - skipping pixel analysis",
+			analysisType, matType))
+		return
+	}
 
-	for _, point := range samplePoints {
-		if point.X < cols && point.Y < rows {
-			var pixelDesc string
-
-			if channels == 1 {
-				value := mat.GetUCharAt(point.Y, point.X)
-				pixelDesc = fmt.Sprintf("(%d,%d)=%d", point.X, point.Y, value)
-				if value == 0 {
-					blackCount++
-				} else if value == 255 {
-					whiteCount++
-				}
-			} else if channels == 3 {
-				b := mat.GetUCharAt3(point.Y, point.X, 0)
-				g := mat.GetUCharAt3(point.Y, point.X, 1)
-				r := mat.GetUCharAt3(point.Y, point.X, 2)
-				pixelDesc = fmt.Sprintf("(%d,%d)=(%d,%d,%d)", point.X, point.Y, r, g, b)
-				if r == 0 && g == 0 && b == 0 {
-					blackCount++
-				} else if r == 255 && g == 255 && b == 255 {
-					whiteCount++
-				}
-			} else {
-				pixelDesc = fmt.Sprintf("(%d,%d)=unsupported_%dch", point.X, point.Y, channels)
-			}
-
-			samples = append(samples, pixelDesc)
-			totalSamples++
+	// Use recovery for ANY Mat operation
+	defer func() {
+		if r := recover(); r != nil {
+			LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat operation caused panic (recovered): %v", analysisType, r))
 		}
+	}()
+
+	// Validate channels before any operations
+	if channels != 1 && channels != 3 && channels != 4 {
+		LogWarning("PixelAnalysis", fmt.Sprintf("%s: Unsupported channel count (%d) - skipping pixel analysis",
+			analysisType, channels))
+		return
 	}
 
-	isAllBlack := blackCount == totalSamples
-	isAllWhite := whiteCount == totalSamples
-	hasMixed := blackCount > 0 && blackCount < totalSamples
+	// Log basic Mat info without pixel access to avoid corruption issues
+	LogInfo("PixelAnalysis", fmt.Sprintf("Mat Info (%s): %dx%d, %d channels, type %d - basic validation passed",
+		analysisType, cols, rows, channels, matType))
 
-	report := fmt.Sprintf(`Mat Pixel Analysis (%s):
-- Dimensions: %dx%d
-- Channels: %d
-- Type: %d
-- Sample Pixels: %v
-- All Black: %t (%d/%d samples)
-- All White: %t (%d/%d samples)
-- Mixed Values: %t`,
-		analysisType, cols, rows, channels, mat.Type(),
-		samples, isAllBlack, blackCount, totalSamples,
-		isAllWhite, whiteCount, totalSamples, hasMixed)
-
-	LogInfo("PixelAnalysis", report)
-
-	if isAllBlack {
-		LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat appears to be completely black!", analysisType))
-	}
+	// For safety, completely skip pixel sampling when Mat data might be corrupted
+	// This prevents segfaults while maintaining debug info about Mat structure
+	LogInfo("PixelAnalysis", fmt.Sprintf("%s: Skipping pixel sampling for memory safety", analysisType))
 }
