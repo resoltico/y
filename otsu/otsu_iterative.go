@@ -1,24 +1,33 @@
 package otsu
 
 import (
+	"fmt"
 	"image"
 	"math"
 
 	"gocv.io/x/gocv"
+
+	"otsu-obliterator/debug"
 )
 
 type IterativeTriclassProcessor struct {
-	params map[string]interface{}
+	params       map[string]interface{}
+	debugManager *debug.Manager
 }
 
 func NewIterativeTriclassProcessor(params map[string]interface{}) *IterativeTriclassProcessor {
 	return &IterativeTriclassProcessor{
-		params: params,
+		params:       params,
+		debugManager: debug.NewManager(),
 	}
 }
 
 func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, error) {
 	defer src.Close()
+
+	// Debug initial input
+	processor.debugManager.LogTriclassStart(src, processor.params)
+	processor.debugManager.LogMatPixelAnalysis("TriclassInput", src)
 
 	// Convert to grayscale if needed
 	gray := gocv.NewMat()
@@ -30,12 +39,15 @@ func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, er
 		src.CopyTo(&gray)
 	}
 
+	processor.debugManager.LogMatPixelAnalysis("TriclassGrayscale", gray)
+
 	// Apply preprocessing if requested
 	working := gocv.NewMat()
 	defer working.Close()
 
 	if processor.getBoolParam("apply_preprocessing") {
 		processor.applyPreprocessing(&gray, &working)
+		processor.debugManager.LogMatPixelAnalysis("TriclassPreprocessed", working)
 	} else {
 		gray.CopyTo(&working)
 	}
@@ -56,12 +68,16 @@ func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, er
 	defer currentRegion.Close()
 	working.CopyTo(&currentRegion)
 
+	processor.debugManager.LogMatPixelAnalysis("TriclassInitialRegion", currentRegion)
+
 	// Iterative processing
 	maxIterations := processor.getIntParam("max_iterations")
 	convergenceEpsilon := processor.getFloatParam("convergence_epsilon")
 	minTBDFraction := processor.getFloatParam("minimum_tbd_fraction")
 
 	var previousThreshold float64 = -1
+	var iterationThresholds []float64
+	var iterationConvergence []float64
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Calculate histogram for current region
@@ -69,9 +85,14 @@ func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, er
 
 		// Find initial threshold
 		threshold := processor.findInitialThreshold(histogram)
+		iterationThresholds = append(iterationThresholds, threshold)
 
 		// Check convergence
-		if previousThreshold >= 0 && math.Abs(threshold-previousThreshold) < convergenceEpsilon {
+		convergence := math.Abs(threshold - previousThreshold)
+		iterationConvergence = append(iterationConvergence, convergence)
+
+		if previousThreshold >= 0 && convergence < convergenceEpsilon {
+			processor.debugManager.LogTriclassIteration(iteration, threshold, convergence, 0, 0, 0)
 			break
 		}
 		previousThreshold = threshold
@@ -83,10 +104,22 @@ func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, er
 		newForeground, newBackground, newTBD := processor.createTriclassSegmentation(
 			&currentRegion, meanLower, meanUpper)
 
+		// Count pixels in each class
+		foregroundCount := processor.countNonZeroPixels(&newForeground)
+		backgroundCount := processor.countNonZeroPixels(&newBackground)
+		tbdCount := processor.countNonZeroPixels(&newTBD)
+
+		processor.debugManager.LogTriclassIteration(iteration, threshold, convergence,
+			foregroundCount, backgroundCount, tbdCount)
+
+		// Debug the masks
+		processor.debugManager.LogMatPixelAnalysis("TriclassForegroundMask", newForeground)
+		processor.debugManager.LogMatPixelAnalysis("TriclassBackgroundMask", newBackground)
+		processor.debugManager.LogMatPixelAnalysis("TriclassTBDMask", newTBD)
+
 		// Check TBD region size
-		tbdPixels := processor.countNonZeroPixels(&newTBD)
 		totalPixels := currentRegion.Rows() * currentRegion.Cols()
-		tbdFraction := float64(tbdPixels) / float64(totalPixels)
+		tbdFraction := float64(tbdCount) / float64(totalPixels)
 
 		if tbdFraction < minTBDFraction {
 			// TBD region too small, stop iteration
@@ -101,15 +134,22 @@ func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, er
 
 		// Update current region to TBD only
 		processor.maskRegion(&working, &newTBD, &currentRegion)
+		processor.debugManager.LogMatPixelAnalysis("TriclassUpdatedRegion", currentRegion)
 
 		newForeground.Close()
 		newBackground.Close()
 		newTBD.Close()
 	}
 
+	// Debug final masks
+	processor.debugManager.LogMatPixelAnalysis("TriclassFinalForeground", foregroundMask)
+	processor.debugManager.LogMatPixelAnalysis("TriclassFinalBackground", backgroundMask)
+
 	// Create final result
 	result := gocv.NewMat()
 	processor.createFinalResult(&foregroundMask, &backgroundMask, &result)
+
+	processor.debugManager.LogMatPixelAnalysis("TriclassRawResult", result)
 
 	// Apply cleanup if requested
 	if processor.getBoolParam("apply_cleanup") {
@@ -117,7 +157,33 @@ func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, er
 		processor.applyCleanup(&result, &cleaned)
 		result.Close()
 		result = cleaned
+		processor.debugManager.LogMatPixelAnalysis("TriclassCleanedResult", result)
 	}
+
+	// Log final debug information
+	totalPixels := result.Rows() * result.Cols()
+	foregroundPixels := processor.countNonZeroPixels(&result)
+	backgroundPixels := totalPixels - foregroundPixels
+
+	debugInfo := &debug.TriclassDebugInfo{
+		InputMatDimensions:   fmt.Sprintf("%dx%d", src.Cols(), src.Rows()),
+		InputMatChannels:     src.Channels(),
+		InputMatType:         src.Type(),
+		OutputMatDimensions:  fmt.Sprintf("%dx%d", result.Cols(), result.Rows()),
+		OutputMatChannels:    result.Channels(),
+		OutputMatType:        result.Type(),
+		IterationCount:       len(iterationThresholds),
+		FinalThreshold:       previousThreshold,
+		TotalPixels:          totalPixels,
+		ForegroundPixels:     foregroundPixels,
+		BackgroundPixels:     backgroundPixels,
+		TBDPixels:            0, // Final result has no TBD pixels
+		ProcessingSteps:      []string{"grayscale", "preprocessing", "iterative_segmentation", "final_result"},
+		IterationThresholds:  iterationThresholds,
+		IterationConvergence: iterationConvergence,
+	}
+
+	processor.debugManager.LogTriclassResult(debugInfo)
 
 	return result, nil
 }

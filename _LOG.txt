@@ -1,0 +1,30 @@
+[9:16:44 AM] % make run-debug-comprehensive
+Running with comprehensive debugging for complex issues...
+Enables triclass, pixel analysis, image conversion, and format debugging
+OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_FORMAT=true go run -tags matprofile .
+# otsu-obliterator/debug
+debug/debug_initialization.go:11:2: EnableFormatDetection redeclared in this block
+	debug/debug_format.go:11:5: other declaration of EnableFormatDetection
+debug/debug_initialization.go:12:2: EnableImageDebug redeclared in this block
+	debug/debug_image.go:24:2: other declaration of EnableImageDebug
+debug/debug_initialization.go:13:2: EnablePerformanceDebug redeclared in this block
+	debug/debug_image.go:25:2: other declaration of EnablePerformanceDebug
+debug/debug_initialization.go:14:2: EnableMemoryDebug redeclared in this block
+	debug/debug_image.go:26:2: other declaration of EnableMemoryDebug
+debug/debug_initialization.go:15:2: EnableGUIDebug redeclared in this block
+	debug/debug_gui.go:8:5: other declaration of EnableGUIDebug
+debug/debug_initialization.go:16:2: EnableAlgorithmDebug redeclared in this block
+	debug/debug_algorithms.go:9:5: other declaration of EnableAlgorithmDebug
+debug/debug_pixel_analysis.go:12:5: EnablePixelAnalysisDebug redeclared in this block
+	debug/debug_initialization.go:20:2: other declaration of EnablePixelAnalysisDebug
+debug/debug_pixel_analysis.go:72:15: color.Gray is not a type
+debug/debug_pixel_analysis.go:79:15: color.RGBA is not a type
+debug/debug_triclass.go:11:5: EnableTriclassDebug redeclared in this block
+	debug/debug_initialization.go:19:2: other declaration of EnableTriclassDebug
+debug/debug_pixel_analysis.go:79:15: too many errors
+make: *** [run-debug-comprehensive] Error 1
+[9:16:59 AM] % 
+
+
+
+

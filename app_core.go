@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	_ "net/http/pprof"
-	"os"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -48,24 +47,6 @@ const (
 	WindowHeight = 800
 )
 
-// Debug component toggles - can be overridden by environment variables
-var (
-	DebugFormatDetection = getEnvBool("OTSU_DEBUG_FORMAT", false)     // Format detection and signature analysis
-	DebugImageProcessing = getEnvBool("OTSU_DEBUG_IMAGE", true)       // Image loading, processing, and metrics
-	DebugMemoryTracking  = getEnvBool("OTSU_DEBUG_MEMORY", true)      // Memory usage and Mat profiling
-	DebugPerformance     = getEnvBool("OTSU_DEBUG_PERFORMANCE", true) // Timing and performance metrics
-	DebugGUI             = getEnvBool("OTSU_DEBUG_GUI", false)        // GUI events and interactions
-	DebugAlgorithms      = getEnvBool("OTSU_DEBUG_ALGORITHMS", false) // Algorithm parameter changes and execution
-)
-
-// getEnvBool reads a boolean environment variable with a default value
-func getEnvBool(key string, defaultValue bool) bool {
-	if value := os.Getenv(key); value != "" {
-		return value == "true"
-	}
-	return defaultValue
-}
-
 type OtsuApp struct {
 	fyneApp      fyne.App
 	window       fyne.Window
@@ -85,13 +66,8 @@ func NewOtsuApp() *OtsuApp {
 	// Initialize profiling if enabled
 	debug.Initialize()
 
-	// Set debug component toggles in the debug package
-	debug.EnableFormatDetection = DebugFormatDetection
-	debug.EnableImageDebug = DebugImageProcessing
-	debug.EnablePerformanceDebug = DebugPerformance
-	debug.EnableMemoryDebug = DebugMemoryTracking
-	debug.EnableGUIDebug = DebugGUI
-	debug.EnableAlgorithmDebug = DebugAlgorithms
+	// Initialize debug components with environment variables
+	debug.InitializeDebugComponents()
 
 	// Initialize managers
 	debugManager := debug.NewManager()

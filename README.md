@@ -177,24 +177,6 @@ make build-linux             # Linux build
 make build-macos-universal   # Universal macOS binary
 ```
 
-### Debugging Format Issues
-```bash
-# Start with format debugging
-make run-debug-format
-
-# Load your TIFF file and monitor terminal for:
-# [FormatDebug] Format Detection Analysis
-# [ImageDebug] Image Load Debug Report
-# [WARN] Format mismatch detected
-```
-
-The debug output will show:
-- URI extension vs detected format
-- File signature analysis (hex dump of first 16 bytes)
-- Standard library detection result
-- OpenCV IMDecode result
-- Final format determination logic
-
 ### Profiling
 Built-in profiling tracks:
 - Mat creation/destruction

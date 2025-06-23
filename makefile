@@ -53,9 +53,24 @@ run-debug-image:
 	@echo "Running with image processing debugging enabled..."
 	OTSU_DEBUG_IMAGE=true go run -tags matprofile .
 
+run-debug-triclass:
+	@echo "Running with Iterative Triclass algorithm debugging enabled..."
+	@echo "This will show detailed triclass processing steps and pixel analysis"
+	OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true go run -tags matprofile .
+
+run-debug-pixels:
+	@echo "Running with pixel-level analysis debugging enabled..."
+	@echo "This will show detailed pixel sampling and analysis"
+	OTSU_DEBUG_PIXELS=true go run -tags matprofile .
+
+run-debug-comprehensive:
+	@echo "Running with comprehensive debugging for complex issues..."
+	@echo "Enables triclass, pixel analysis, image conversion, and format debugging"
+	OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_FORMAT=true go run -tags matprofile .
+
 run-debug-all:
 	@echo "Running with ALL debugging enabled..."
-	OTSU_DEBUG_FORMAT=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_MEMORY=true OTSU_DEBUG_PERFORMANCE=true OTSU_DEBUG_GUI=true OTSU_DEBUG_ALGORITHMS=true go run -tags matprofile .
+	OTSU_DEBUG_FORMAT=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_MEMORY=true OTSU_DEBUG_PERFORMANCE=true OTSU_DEBUG_GUI=true OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true go run -tags matprofile .
 
 # Clean build artifacts
 clean:
@@ -218,6 +233,9 @@ help:
 	@echo "  run-debug-performance- Performance timing and metrics"
 	@echo "  run-debug-memory     - Memory usage and tracking"
 	@echo "  run-debug-image      - Image processing and conversion"
+	@echo "  run-debug-triclass   - Iterative Triclass algorithm debugging"
+	@echo "  run-debug-pixels     - Pixel-level analysis and sampling"
+	@echo "  run-debug-comprehensive- Multiple debug categories for complex issues"
 	@echo "  run-debug-all        - All debugging enabled"
 	@echo ""
 	@echo "🌍 CROSS-PLATFORM:"
@@ -238,11 +256,12 @@ help:
 	@echo "  vet                  - Vet code"
 	@echo ""
 	@echo "🚀 QUICK START:"
-	@echo "  make dev && make run-debug-format"
+	@echo "  make dev && make run-debug-comprehensive"
 	@echo ""
 	@echo "📈 DEBUGGING:"
 	@echo "  profile-count        - Get current MatProfile count"
 	@echo "  run-debug-format     - Focus on image format detection issues"
+	@echo "  run-debug-comprehensive- Focus on complex algorithm/display issues"
 
 # Default target
 .DEFAULT_GOAL := help
