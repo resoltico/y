@@ -1,7 +1,0 @@
-[7:23:15 PM] % make run-debug-all
-Running with ALL debugging enabled...
-OTSU_DEBUG_FORMAT=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_MEMORY=true OTSU_DEBUG_PERFORMANCE=true OTSU_DEBUG_GUI=true OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true go run -tags matprofile .
-# otsu-obliterator/otsu
-otsu/otsu_iterative_postprocess_updated.go:151:78: cannot use gocv.BorderConstant (constant 0 of int type gocv.BorderType) as int value in argument to gocv.ErodeWithParams
-make: *** [run-debug-all] Error 1
-[7:23:51 PM] % 

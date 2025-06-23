@@ -1,4 +1,4 @@
-# Otsu Obliterator Makefile - Updated for Modularized Algorithms
+# Otsu Obliterator Makefile
 .PHONY: build run clean test profile build-profile run-profile check-leaks deps check-deps
 
 # Binary name
@@ -25,22 +25,6 @@ run-profile:
 	@echo "Format detection debug logs will show image loading details"
 	go run -tags matprofile .
 
-# Debug targets for modularized algorithms
-run-debug-2d-otsu:
-	@echo "Running with 2D Otsu algorithm debugging enabled..."
-	@echo "This will show detailed 2D Otsu processing steps, histogram analysis, and threshold calculation"
-	OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_IMAGE=true go run -tags matprofile .
-
-run-debug-triclass:
-	@echo "Running with Iterative Triclass algorithm debugging enabled..."
-	@echo "This will show detailed triclass processing steps, convergence analysis, and iteration details"
-	OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_IMAGE=true go run -tags matprofile .
-
-run-debug-algorithms:
-	@echo "Running with comprehensive algorithm debugging enabled..."
-	@echo "Shows both 2D Otsu and Iterative Triclass algorithm details"
-	OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_IMAGE=true go run -tags matprofile .
-
 # Debug target with format detection focus
 run-debug-format:
 	@echo "Running with focused format detection debugging..."
@@ -52,6 +36,10 @@ run-debug-format:
 run-debug-gui:
 	@echo "Running with GUI debugging enabled..."
 	OTSU_DEBUG_GUI=true go run -tags matprofile .
+
+run-debug-algorithms:
+	@echo "Running with algorithm debugging enabled..."
+	OTSU_DEBUG_ALGORITHMS=true go run -tags matprofile .
 
 run-debug-performance:
 	@echo "Running with performance debugging enabled..."
@@ -65,49 +53,30 @@ run-debug-image:
 	@echo "Running with image processing debugging enabled..."
 	OTSU_DEBUG_IMAGE=true go run -tags matprofile .
 
+run-debug-triclass:
+	@echo "Running with Iterative Triclass algorithm debugging enabled..."
+	@echo "This will show detailed triclass processing steps and pixel analysis"
+	OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true go run -tags matprofile .
+
 run-debug-pixels:
 	@echo "Running with pixel-level analysis debugging enabled..."
 	@echo "This will show detailed pixel sampling and analysis"
 	OTSU_DEBUG_PIXELS=true go run -tags matprofile .
 
-# Comprehensive debug modes
 run-debug-comprehensive:
-	@echo "Running with comprehensive debugging for algorithm development..."
-	@echo "Enables algorithm, image, performance, and memory debugging"
-	OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_PERFORMANCE=true OTSU_DEBUG_MEMORY=true go run -tags matprofile .
+	@echo "Running with comprehensive debugging for complex issues..."
+	@echo "Enables triclass, pixel analysis, image conversion, and format debugging"
+	OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_FORMAT=true go run -tags matprofile .
 
 run-debug-all:
 	@echo "Running with ALL debugging enabled..."
 	OTSU_DEBUG_FORMAT=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_MEMORY=true OTSU_DEBUG_PERFORMANCE=true OTSU_DEBUG_GUI=true OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true go run -tags matprofile .
 
-# Safe debug target - mathematical algorithm focus without pixel analysis
-run-debug-math:
-	@echo "Running with mathematical algorithm debugging (safe mode)..."
-	@echo "Focuses on mathematical correctness without pixel-level analysis"
-	OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PERFORMANCE=true go run -tags matprofile .
-
-# Algorithm validation and testing
-run-validate-2d-otsu:
-	@echo "Running 2D Otsu algorithm validation..."
-	@echo "Tests parameter validation, mathematical correctness, and edge cases"
-	OTSU_DEBUG_ALGORITHMS=true OTSU_VALIDATE_2D_OTSU=true go run -tags matprofile .
-
-run-validate-triclass:
-	@echo "Running Iterative Triclass algorithm validation..."
-	@echo "Tests convergence behavior, parameter validation, and mathematical correctness"
-	OTSU_DEBUG_TRICLASS=true OTSU_VALIDATE_TRICLASS=true go run -tags matprofile .
-
-# Performance benchmarking
-run-benchmark-algorithms:
-	@echo "Running algorithm performance benchmarks..."
-	@echo "Compares 2D Otsu vs Iterative Triclass performance on various image types"
-	OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PERFORMANCE=true OTSU_BENCHMARK_MODE=true go run -tags matprofile .
-
-# Thread safety testing for Fyne v2.6+
-run-test-thread-safety:
-	@echo "Running with thread safety validation for Fyne v2.6+..."
-	@echo "Tests fyne.Do usage and concurrent access patterns"
-	OTSU_DEBUG_GUI=true OTSU_TEST_THREAD_SAFETY=true go run -tags matprofile .
+# Safe debug target - excluding pixel analysis to avoid segfaults
+run-debug-safe:
+	@echo "Running with safe debugging (no pixel analysis)..."
+	@echo "Enables triclass, image conversion, and format debugging without pixel-level analysis"
+	OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_FORMAT=true go run -tags matprofile .
 
 # Clean build artifacts
 clean:
@@ -122,7 +91,7 @@ deps:
 	go mod tidy
 	go mod download
 
-# Dependency verification with version checks
+# Dependency verification
 check-deps:
 	@echo "Checking system dependencies..."
 	@echo "Checking Go version..."
@@ -133,27 +102,12 @@ check-deps:
 	@pkg-config --modversion opencv4 2>/dev/null || pkg-config --modversion opencv 2>/dev/null || echo "Could not determine OpenCV version"
 	@echo "Checking Fyne dependencies..."
 	@go list -m fyne.io/fyne/v2 > /dev/null || (echo "ERROR: Fyne not found. Run 'make deps'"; exit 1)
-	@echo "Verifying Fyne v2.6+ compatibility..."
-	@go list -m fyne.io/fyne/v2 | grep -E "v2\.[6-9]\.|v[3-9]\." > /dev/null || echo "WARNING: Fyne v2.6+ recommended for full compatibility"
 	@echo "All dependencies OK!"
 
 # Test with profiling enabled
 test:
 	@echo "Running tests with Mat profiling..."
 	go test -tags matprofile ./...
-
-# Algorithm-specific testing
-test-2d-otsu:
-	@echo "Running 2D Otsu algorithm tests..."
-	go test -tags matprofile -v ./otsu -run "*2DOtsu*"
-
-test-triclass:
-	@echo "Running Iterative Triclass algorithm tests..."
-	go test -tags matprofile -v ./otsu -run "*Triclass*"
-
-test-algorithms:
-	@echo "Running comprehensive algorithm tests..."
-	go test -tags matprofile -v ./otsu
 
 # Memory leak detection
 check-leaks:
@@ -252,97 +206,75 @@ vet:
 # Development workflow target
 dev: check-deps deps build-profile
 	@echo "Development environment ready!"
-	@echo "Run 'make run-debug-algorithms' to start with algorithm debugging"
-	@echo "Run 'make run-debug-math' for mathematical algorithm validation"
-	@echo "Run 'make run-validate-2d-otsu' or 'make run-validate-triclass' for algorithm testing"
+	@echo "Run 'make run-profile' to start with memory profiling"
+	@echo "Run 'make run-debug-format' for format detection debugging"
+	@echo "Run 'make check-leaks' for memory leak detection"
+	@echo "Run 'make run-debug-safe' for safe debugging without pixel analysis"
 
 # Production workflow target  
 prod: check-deps deps test build
 	@echo "Production build complete!"
 	@echo "Binary: $(BINARY_NAME)"
 
-# Algorithm development workflow
-dev-algorithms: check-deps deps
-	@echo "Algorithm development environment ready!"
-	@echo "Available targets:"
-	@echo "  make run-debug-2d-otsu       - Debug 2D Otsu algorithm"
-	@echo "  make run-debug-triclass      - Debug Iterative Triclass algorithm" 
-	@echo "  make run-debug-algorithms    - Debug both algorithms"
-	@echo "  make run-validate-2d-otsu    - Validate 2D Otsu implementation"
-	@echo "  make run-validate-triclass   - Validate Triclass implementation"
-	@echo "  make test-algorithms         - Run algorithm test suite"
-	@echo "  make run-benchmark-algorithms- Performance benchmarking"
-
 # Help target
 help:
 	@echo "Otsu Obliterator - Available Targets:"
 	@echo ""
 	@echo "🔧 MAIN TARGETS:"
-	@echo "  dev                       - Set up development environment"
-	@echo "  dev-algorithms            - Set up algorithm development environment"
-	@echo "  build-profile             - Build with memory profiling enabled"
-	@echo "  run-profile               - Run with memory profiling"
-	@echo "  check-leaks               - Run with memory leak detection"
-	@echo "  profile                   - Start with full profiling server"
-	@echo "  prod                      - Full production build workflow"
+	@echo "  dev                  - Set up development environment"
+	@echo "  build-profile        - Build with memory profiling enabled"
+	@echo "  run-profile          - Run with memory profiling"
+	@echo "  run-debug-format     - Run with format detection debugging"
+	@echo "  run-debug-safe       - Run with safe debugging (no pixel analysis)"
+	@echo "  check-leaks          - Run with memory leak detection"
+	@echo "  profile              - Start with full profiling server"
+	@echo "  prod                 - Full production build workflow"
 	@echo ""
 	@echo "🚀 PRODUCTION:"
-	@echo "  build                     - Build production binary"
-	@echo "  run                       - Run production binary"
+	@echo "  build                - Build production binary"
+	@echo "  run                  - Run production binary"
 	@echo ""
-	@echo "🧮 ALGORITHM DEBUGGING:"
-	@echo "  run-debug-2d-otsu         - Debug 2D Otsu algorithm implementation"
-	@echo "  run-debug-triclass        - Debug Iterative Triclass algorithm"
-	@echo "  run-debug-algorithms      - Debug both algorithms comprehensively"
-	@echo "  run-debug-math            - Mathematical algorithm debugging (safe mode)"
-	@echo "  run-validate-2d-otsu      - Validate 2D Otsu mathematical correctness"
-	@echo "  run-validate-triclass     - Validate Triclass convergence behavior"
-	@echo "  run-benchmark-algorithms  - Performance comparison benchmarking"
-	@echo ""
-	@echo "🐛 COMPONENT DEBUGGING:"
-	@echo "  run-debug-format          - Format detection and image loading"
-	@echo "  run-debug-gui             - GUI events and interactions"
-	@echo "  run-debug-performance     - Performance timing and metrics"
-	@echo "  run-debug-memory          - Memory usage and tracking"
-	@echo "  run-debug-image           - Image processing and conversion"
-	@echo "  run-debug-pixels          - Pixel-level analysis and sampling"
-	@echo "  run-debug-comprehensive   - Multiple debug categories"
-	@echo "  run-debug-all             - All debugging enabled"
-	@echo ""
-	@echo "🧪 TESTING:"
-	@echo "  test                      - Run full test suite"
-	@echo "  test-algorithms           - Run algorithm-specific tests"
-	@echo "  test-2d-otsu              - Test 2D Otsu implementation"
-	@echo "  test-triclass             - Test Iterative Triclass implementation"
-	@echo "  run-test-thread-safety    - Test Fyne v2.6+ thread safety"
+	@echo "🐛 DEBUG TARGETS:"
+	@echo "  run-debug-format     - Format detection and image loading"
+	@echo "  run-debug-gui        - GUI events and interactions"
+	@echo "  run-debug-algorithms - Algorithm execution and parameters"
+	@echo "  run-debug-performance- Performance timing and metrics"
+	@echo "  run-debug-memory     - Memory usage and tracking"
+	@echo "  run-debug-image      - Image processing and conversion"
+	@echo "  run-debug-triclass   - Iterative Triclass algorithm debugging"
+	@echo "  run-debug-pixels     - Pixel-level analysis and sampling"
+	@echo "  run-debug-comprehensive- Multiple debug categories for complex issues"
+	@echo "  run-debug-safe       - Safe debugging without pixel analysis"
+	@echo "  run-debug-all        - All debugging enabled"
 	@echo ""
 	@echo "🌍 CROSS-PLATFORM:"
-	@echo "  build-windows             - Build for Windows"
-	@echo "  build-macos               - Build for macOS (Intel)"
-	@echo "  build-macos-arm64         - Build for macOS (Apple Silicon)"
-	@echo "  build-macos-universal     - Build universal macOS binary"
-	@echo "  build-macos-app           - Create macOS app bundle"
-	@echo "  build-linux               - Build for Linux"
+	@echo "  build-windows        - Build for Windows"
+	@echo "  build-macos          - Build for macOS (Intel)"
+	@echo "  build-macos-arm64    - Build for macOS (Apple Silicon)"
+	@echo "  build-macos-universal- Build universal macOS binary"
+	@echo "  build-macos-app      - Create macOS app bundle"
+	@echo "  build-linux          - Build for Linux"
 	@echo ""
 	@echo "🔧 MAINTENANCE:"
-	@echo "  deps                      - Install dependencies"
-	@echo "  check-deps                - Verify system dependencies"
-	@echo "  clean                     - Clean build artifacts"
-	@echo "  fmt                       - Format code"
-	@echo "  lint                      - Lint code"
-	@echo "  vet                       - Vet code"
+	@echo "  deps                 - Install dependencies"
+	@echo "  check-deps           - Verify system dependencies"
+	@echo "  test                 - Run tests"
+	@echo "  clean                - Clean build artifacts"
+	@echo "  fmt                  - Format code"
+	@echo "  lint                 - Lint code"
+	@echo "  vet                  - Vet code"
 	@echo ""
-	@echo "🚀 ALGORITHM DEVELOPMENT QUICK START:"
-	@echo "  make dev-algorithms && make run-debug-math"
+	@echo "🚀 QUICK START:"
+	@echo "  make dev && make run-debug-safe"
 	@echo ""
-	@echo "📈 PROFILING:"
-	@echo "  profile-count             - Get current MatProfile count"
+	@echo "📈 DEBUGGING:"
+	@echo "  profile-count        - Get current MatProfile count"
+	@echo "  run-debug-format     - Focus on image format detection issues"
+	@echo "  run-debug-safe       - Safe comprehensive debugging"
 	@echo ""
-	@echo "⚠️  NOTES:"
-	@echo "  - Use 'run-debug-math' for safe algorithm development"
-	@echo "  - Use 'run-debug-algorithms' for comprehensive algorithm analysis"
-	@echo "  - All debug modes include memory profiling automatically"
-	@echo "  - Fyne v2.6+ thread safety is automatically tested in debug modes"
+	@echo "⚠️  TROUBLESHOOTING:"
+	@echo "  Use 'run-debug-safe' instead of 'run-debug-comprehensive' to avoid segfaults"
+	@echo "  Use 'run-debug-triclass' only for algorithm logic debugging"
 
 # Default target
 .DEFAULT_GOAL := help

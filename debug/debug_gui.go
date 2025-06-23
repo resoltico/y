@@ -18,15 +18,15 @@ func (dm *Manager) LogParameterChange(algorithm, parameter string, oldValue, new
 	if !EnableGUIDebug {
 		return
 	}
-	LogInfo("GUIDebug", fmt.Sprintf("Parameter changed - Algorithm: %s, Parameter: %s, %v -> %v",
+	LogInfo("GUIDebug", fmt.Sprintf("Parameter changed - Algorithm: %s, Parameter: %s, %v -> %v", 
 		algorithm, parameter, oldValue, newValue))
 }
 
-func (dm *Manager) LogGUIAlgorithmSwitch(fromAlgorithm, toAlgorithm string) {
+func (dm *Manager) LogAlgorithmSwitch(fromAlgorithm, toAlgorithm string) {
 	if !EnableGUIDebug {
 		return
 	}
-	LogInfo("GUIDebug", fmt.Sprintf("GUI Algorithm switched: %s -> %s", fromAlgorithm, toAlgorithm))
+	LogInfo("GUIDebug", fmt.Sprintf("Algorithm switched: %s -> %s", fromAlgorithm, toAlgorithm))
 }
 
 func (dm *Manager) LogImageDisplay(imageType string, dimensions string) {
