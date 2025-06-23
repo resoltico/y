@@ -1,6 +1,8 @@
 package gui
 
 import (
+	"fmt"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 )
@@ -78,5 +80,8 @@ func (lm *LayoutManager) UpdateProgress(progress float64) {
 }
 
 func (lm *LayoutManager) UpdateMetrics(psnr, ssim float64) {
-	lm.statusBar.SetMetrics(psnr, ssim)
+	// Convert float64 values to formatted strings
+	psnrStr := fmt.Sprintf("PSNR: %.2f dB", psnr)
+	ssimStr := fmt.Sprintf("SSIM: %.4f", ssim)
+	lm.statusBar.SetMetrics(psnrStr, ssimStr)
 }
