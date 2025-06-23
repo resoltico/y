@@ -1,0 +1,34 @@
+analyze each line of code, research web, critically analyze whether the project has code quality, logic, bug, math, algorithms issues — specifically with respect either to the two-dimensional otsu and/or with respect to the Iterative triclass thresholding based on the Otsu's method.
+additionally, we also need to further modularize all the files in the folder "otsu" (i.e. all the files with the prefix "otsu_" — for maintainability and debugability purposes — that is split all these files to further smaller files, which would all also have the prefix "otsu_".
+furthermore — the file pipeline/pipe_processor.go is also too large and we need to split this file into further smaller files, which would all also have the prefix "pipe_" and be located in the folder "pipeline".
+
+RULES:
+
+#1
+Make sure we make use of cutting edge standard APIs as much as possible — analyze most current API at this location  https://pkg.go.dev/gocv.io/x/gocv
+Also research other web sites for the purpose of using cutting edge standard APIs.
+We never build or revise with backwards compatibility.
+
+#2
+UI — uses strictly Fyne v2.6+ without backwards compatibility. Research and learn at website https://docs.fyne.io/api/v2.6/
+
+#4
+GUI is modularized across several files with the prefix "gui_". All GUI-related files reside in the folder "gui", and all files there have the prefix "gui_".
+
+#5
+pipeline is modularized across several files with the prefix "pipe_". All GUI-related files reside in the folder "pipeline", and all files there have a prefix "pipe_".
+
+#6
+debug is modularized and is strictly separated from the main logic -- debug is placed only in its own files named "debug_". For example: debug_gui.go, debug_image.go, debug_performance.go, debug_pipeline.go, debug_render.go, debug_algorithm.go. All debug-related files reside in the folder "debug", and all files there have a prefix "debug_".
+
+#7
+Two-dimensional Otsu, and Iterative triclass thresholding are modularized across several files with the prefix "otsu_". All related files reside in the folder "otsu", and all files there have a prefix "otsu_".
+
+#9
+Before trying to use a function, examine the most current docs and research the web to make sure the functions actually exists.
+
+#10
+When generating code, revising code, fixing code, optimizing code, including comments — never use such words (in the code (in comments, in names of functions, etc)) as: fixed, fix, optimized, enhanced, critical, enhanced, comprehensive, improved, detailed, correct, exhaustive, optimal, proper and other words describing quality. Such words are subjective, as quality is subjective — qualitative words only confuse things. For example, when reading a code later, it is possible to interpret FIXED as IMMUTABLE, or to interpret CORRECTED as something set in stone and suggesting that the code never needs to be corrected from now on — and all other similar problems when using such words. The code needs to use clear, descriptive language that explains what the code does rather than making subjective claims about its quality — this makes the codebase more maintainable and easier to understand for future developers.
+
+#11
+Output full files as artifacts — ensure all artifacts are properly named and have a specified path in project tree.
