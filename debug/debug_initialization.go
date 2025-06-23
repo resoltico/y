@@ -4,22 +4,6 @@ import (
 	"os"
 )
 
-// Global debug component toggles
-// These are set during initialization based on environment variables
-var (
-	// Core debug categories
-	EnableFormatDetection  = false // Format detection and signature analysis
-	EnableImageDebug       = true  // Image loading, processing, and metrics
-	EnablePerformanceDebug = true  // Timing and performance metrics
-	EnableMemoryDebug      = true  // Memory usage and Mat profiling
-	EnableGUIDebug         = false // GUI events and interactions
-	EnableAlgorithmDebug   = false // Algorithm parameter changes and execution
-
-	// Algorithm-specific debug categories
-	EnableTriclassDebug      = false // Iterative Triclass algorithm debugging
-	EnablePixelAnalysisDebug = false // Pixel-level analysis and sampling
-)
-
 // getEnvBool reads a boolean environment variable with a default value
 func getEnvBool(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {

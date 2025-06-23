@@ -23,20 +23,23 @@ func NewIterativeTriclassProcessor(params map[string]interface{}) *IterativeTric
 }
 
 func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, error) {
+	// Create a safe copy for processing to avoid memory issues
+	safeSrc := src.Clone()
+	defer safeSrc.Close()
 	defer src.Close()
 
-	// Debug initial input
-	processor.debugManager.LogTriclassStart(src, processor.params)
-	processor.debugManager.LogMatPixelAnalysis("TriclassInput", src)
+	// Debug initial input using the safe copy
+	processor.debugManager.LogTriclassStart(safeSrc, processor.params)
+	processor.debugManager.LogMatPixelAnalysis("TriclassInput", safeSrc)
 
 	// Convert to grayscale if needed
 	gray := gocv.NewMat()
 	defer gray.Close()
 
-	if src.Channels() == 3 {
-		gocv.CvtColor(src, &gray, gocv.ColorBGRToGray)
+	if safeSrc.Channels() == 3 {
+		gocv.CvtColor(safeSrc, &gray, gocv.ColorBGRToGray)
 	} else {
-		src.CopyTo(&gray)
+		safeSrc.CopyTo(&gray)
 	}
 
 	processor.debugManager.LogMatPixelAnalysis("TriclassGrayscale", gray)
@@ -166,9 +169,9 @@ func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, er
 	backgroundPixels := totalPixels - foregroundPixels
 
 	debugInfo := &debug.TriclassDebugInfo{
-		InputMatDimensions:   fmt.Sprintf("%dx%d", src.Cols(), src.Rows()),
-		InputMatChannels:     src.Channels(),
-		InputMatType:         src.Type(),
+		InputMatDimensions:   fmt.Sprintf("%dx%d", gray.Cols(), gray.Rows()),
+		InputMatChannels:     gray.Channels(),
+		InputMatType:         gray.Type(),
 		OutputMatDimensions:  fmt.Sprintf("%dx%d", result.Cols(), result.Rows()),
 		OutputMatChannels:    result.Channels(),
 		OutputMatType:        result.Type(),

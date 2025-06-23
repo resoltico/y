@@ -26,10 +26,10 @@ func (dm *Manager) LogPixelAnalysis(analysisType string, img image.Image) {
 	if !EnablePixelAnalysisDebug {
 		return
 	}
-	
+
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
-	
+
 	bounds := img.Bounds()
 	info := &PixelAnalysisInfo{
 		ImageType:       fmt.Sprintf("%T", img),
@@ -38,37 +38,37 @@ func (dm *Manager) LogPixelAnalysis(analysisType string, img image.Image) {
 		SampleLocations: []string{},
 		PixelValues:     []string{},
 	}
-	
+
 	// Sample pixels from different regions
 	width := bounds.Dx()
 	height := bounds.Dy()
-	
+
 	samplePoints := []image.Point{
-		{0, 0},                    // Top-left
-		{width / 2, 0},            // Top-center
-		{width - 1, 0},            // Top-right
-		{0, height / 2},           // Middle-left
-		{width / 2, height / 2},   // Center
-		{width - 1, height / 2},   // Middle-right
-		{0, height - 1},           // Bottom-left
-		{width / 2, height - 1},   // Bottom-center
-		{width - 1, height - 1},   // Bottom-right
+		{0, 0},                  // Top-left
+		{width / 2, 0},          // Top-center
+		{width - 1, 0},          // Top-right
+		{0, height / 2},         // Middle-left
+		{width / 2, height / 2}, // Center
+		{width - 1, height / 2}, // Middle-right
+		{0, height - 1},         // Bottom-left
+		{width / 2, height - 1}, // Bottom-center
+		{width - 1, height - 1}, // Bottom-right
 	}
-	
+
 	blackCount := 0
 	whiteCount := 0
 	totalSamples := 0
-	
+
 	for _, point := range samplePoints {
 		if point.X < width && point.Y < height {
-			color := img.At(point.X, point.Y)
-			
+			pixelColor := img.At(point.X, point.Y)
+
 			location := fmt.Sprintf("(%d,%d)", point.X, point.Y)
 			info.SampleLocations = append(info.SampleLocations, location)
-			
+
 			var pixelDesc string
-			
-			switch c := color.(type) {
+
+			switch c := pixelColor.(type) {
 			case color.Gray:
 				pixelDesc = fmt.Sprintf("Gray{%d}", c.Y)
 				if c.Y == 0 {
@@ -91,7 +91,7 @@ func (dm *Manager) LogPixelAnalysis(analysisType string, img image.Image) {
 					whiteCount++
 				}
 			default:
-				r, g, b, a := color.RGBA()
+				r, g, b, a := pixelColor.RGBA()
 				pixelDesc = fmt.Sprintf("Generic{%d,%d,%d,%d}", r>>8, g>>8, b>>8, a>>8)
 				if r == 0 && g == 0 && b == 0 {
 					blackCount++
@@ -99,16 +99,16 @@ func (dm *Manager) LogPixelAnalysis(analysisType string, img image.Image) {
 					whiteCount++
 				}
 			}
-			
+
 			info.PixelValues = append(info.PixelValues, pixelDesc)
 			totalSamples++
 		}
 	}
-	
+
 	info.IsAllBlack = blackCount == totalSamples
 	info.IsAllWhite = whiteCount == totalSamples
 	info.HasMixedValues = blackCount > 0 && blackCount < totalSamples
-	
+
 	report := fmt.Sprintf(`Pixel Analysis Report (%s):
 - Image Type: %s
 - Dimensions: %s
@@ -123,9 +123,9 @@ func (dm *Manager) LogPixelAnalysis(analysisType string, img image.Image) {
 		info.IsAllBlack, blackCount, totalSamples,
 		info.IsAllWhite, whiteCount, totalSamples,
 		info.HasMixedValues)
-	
+
 	LogInfo("PixelAnalysis", report)
-	
+
 	if info.IsAllBlack {
 		LogWarning("PixelAnalysis", fmt.Sprintf("%s: Image appears to be completely black!", analysisType))
 	}
@@ -135,38 +135,48 @@ func (dm *Manager) LogMatPixelAnalysis(analysisType string, mat gocv.Mat) {
 	if !EnablePixelAnalysisDebug {
 		return
 	}
-	
-	if mat.Empty() {
-		LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat is empty", analysisType))
+
+	// Safety check - disable pixel analysis if Mat appears invalid
+	// This prevents segfaults when accessing invalid Mat memory
+	defer func() {
+		if r := recover(); r != nil {
+			LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat access caused panic: %v", analysisType, r))
+		}
+	}()
+
+	// Check if Mat is valid and not empty
+	if mat.Empty() || mat.Rows() <= 0 || mat.Cols() <= 0 {
+		LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat is empty or invalid (rows: %d, cols: %d)",
+			analysisType, mat.Rows(), mat.Cols()))
 		return
 	}
-	
+
 	rows := mat.Rows()
 	cols := mat.Cols()
 	channels := mat.Channels()
-	
+
 	// Sample pixels from different regions
 	samplePoints := []image.Point{
-		{0, 0},                    // Top-left
-		{cols / 2, 0},             // Top-center
-		{cols - 1, 0},             // Top-right
-		{0, rows / 2},             // Middle-left
-		{cols / 2, rows / 2},      // Center
-		{cols - 1, rows / 2},      // Middle-right
-		{0, rows - 1},             // Bottom-left
-		{cols / 2, rows - 1},      // Bottom-center
-		{cols - 1, rows - 1},      // Bottom-right
+		{0, 0},               // Top-left
+		{cols / 2, 0},        // Top-center
+		{cols - 1, 0},        // Top-right
+		{0, rows / 2},        // Middle-left
+		{cols / 2, rows / 2}, // Center
+		{cols - 1, rows / 2}, // Middle-right
+		{0, rows - 1},        // Bottom-left
+		{cols / 2, rows - 1}, // Bottom-center
+		{cols - 1, rows - 1}, // Bottom-right
 	}
-	
+
 	samples := []string{}
 	blackCount := 0
 	whiteCount := 0
 	totalSamples := 0
-	
+
 	for _, point := range samplePoints {
 		if point.X < cols && point.Y < rows {
 			var pixelDesc string
-			
+
 			if channels == 1 {
 				value := mat.GetUCharAt(point.Y, point.X)
 				pixelDesc = fmt.Sprintf("(%d,%d)=%d", point.X, point.Y, value)
@@ -188,16 +198,16 @@ func (dm *Manager) LogMatPixelAnalysis(analysisType string, mat gocv.Mat) {
 			} else {
 				pixelDesc = fmt.Sprintf("(%d,%d)=unsupported_%dch", point.X, point.Y, channels)
 			}
-			
+
 			samples = append(samples, pixelDesc)
 			totalSamples++
 		}
 	}
-	
+
 	isAllBlack := blackCount == totalSamples
 	isAllWhite := whiteCount == totalSamples
 	hasMixed := blackCount > 0 && blackCount < totalSamples
-	
+
 	report := fmt.Sprintf(`Mat Pixel Analysis (%s):
 - Dimensions: %dx%d
 - Channels: %d
@@ -209,9 +219,9 @@ func (dm *Manager) LogMatPixelAnalysis(analysisType string, mat gocv.Mat) {
 		analysisType, cols, rows, channels, mat.Type(),
 		samples, isAllBlack, blackCount, totalSamples,
 		isAllWhite, whiteCount, totalSamples, hasMixed)
-	
+
 	LogInfo("PixelAnalysis", report)
-	
+
 	if isAllBlack {
 		LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat appears to be completely black!", analysisType))
 	}

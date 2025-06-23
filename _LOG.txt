@@ -1,30 +1,79 @@
-[9:16:44 AM] % make run-debug-comprehensive
-Running with comprehensive debugging for complex issues...
-Enables triclass, pixel analysis, image conversion, and format debugging
-OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_FORMAT=true go run -tags matprofile .
-# otsu-obliterator/debug
-debug/debug_initialization.go:11:2: EnableFormatDetection redeclared in this block
-	debug/debug_format.go:11:5: other declaration of EnableFormatDetection
-debug/debug_initialization.go:12:2: EnableImageDebug redeclared in this block
-	debug/debug_image.go:24:2: other declaration of EnableImageDebug
-debug/debug_initialization.go:13:2: EnablePerformanceDebug redeclared in this block
-	debug/debug_image.go:25:2: other declaration of EnablePerformanceDebug
-debug/debug_initialization.go:14:2: EnableMemoryDebug redeclared in this block
-	debug/debug_image.go:26:2: other declaration of EnableMemoryDebug
-debug/debug_initialization.go:15:2: EnableGUIDebug redeclared in this block
-	debug/debug_gui.go:8:5: other declaration of EnableGUIDebug
-debug/debug_initialization.go:16:2: EnableAlgorithmDebug redeclared in this block
-	debug/debug_algorithms.go:9:5: other declaration of EnableAlgorithmDebug
-debug/debug_pixel_analysis.go:12:5: EnablePixelAnalysisDebug redeclared in this block
-	debug/debug_initialization.go:20:2: other declaration of EnablePixelAnalysisDebug
-debug/debug_pixel_analysis.go:72:15: color.Gray is not a type
-debug/debug_pixel_analysis.go:79:15: color.RGBA is not a type
-debug/debug_triclass.go:11:5: EnableTriclassDebug redeclared in this block
-	debug/debug_initialization.go:19:2: other declaration of EnableTriclassDebug
-debug/debug_pixel_analysis.go:79:15: too many errors
-make: *** [run-debug-comprehensive] Error 1
-[9:16:59 AM] % 
+[9:27:47 AM] % OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_FORMAT=true go run -tags matprofile .
+# otsu-obliterator
+ld: warning: ignoring duplicate libraries: '-lobjc'
+2025/06/23 09:27:49 Starting profiling server on :6060
+2025/06/23 09:27:49 MatProfile debugging enabled
+2025/06/23 09:27:49 Memory profiling available at http://localhost:6060/debug/pprof/
+2025/06/23 09:27:49 Mat profiling available at http://localhost:6060/debug/pprof/gocv.io/x/gocv.Mat
+2025/06/23 09:27:49 [INFO] DebugInit: Iterative Triclass debugging enabled
+2025/06/23 09:27:49 [INFO] DebugInit: Format detection debugging enabled
+2025/06/23 09:27:49 [INFO] DebugInit: Image processing debugging enabled
+2025/06/23 09:27:49 [INFO] DebugInit: Performance debugging enabled
+2025/06/23 09:27:49 [INFO] DebugInit: Memory debugging enabled
+2025/06/23 09:27:55 [INFO] FormatDebug: Standard library decoding - Format: png, Status: success
+2025/06/23 09:27:55 [INFO] FormatDebug: OpenCV IMDecode - Status: success, Channels: 3
+2025/06/23 09:27:55 [INFO] FormatDebug: Format Detection Analysis:
+- URI: file:///Users/erst/Desktop/Ut feritur ferit.png
+- URI Scheme: file  
+- URI Path: /Users/erst/Desktop/Ut feritur ferit.png
+- URI Extension: .png
+- URI MimeType: image/png
+- Standard Library Format: png
+- OpenCV Supported: true
+- Final Format: png
+- Data Size: 291032 bytes
+- First 16 bytes (hex): 89 50 4E 47 0D 0A 1A 0A 00 00 00 0D 49 48 44 52
+- Format Signature Analysis: PNG signature detected
+2025/06/23 09:27:55 [INFO] ImageDebug: Image Load Debug Report:
+- Original URI: file:///Users/erst/Desktop/Ut feritur ferit.png
+- Extension from URI: .png
+- Detected Format: png
+- Dimensions: 1400x995
+- Channels: 3
+- Data Size: 291032 bytes
+- Load Time: 43.769125ms
+- Processing Steps: [URI analysis - Extension: .png, Scheme: file, MimeType: image/png Read 291032 bytes from URI Standard library detected format: png OpenCV IMDecode successful Final format determined: png]
+2025/06/23 09:27:55 [INFO] Pipeline: Loaded image: 1400x995, 3 channels, format: png
+2025/06/23 09:27:55 [PERF] image_load: 43.804833ms
+2025/06/23 09:27:57 [INFO] TriclassDebug: Starting Iterative Triclass - Input: 1400x995, Channels: 3, Type: 16, Params: map[apply_cleanup:true apply_preprocessing:false convergence_epsilon:1 histogram_bins:64 initial_threshold_method:otsu lower_upper_gap_factor:0.5 max_iterations:10 minimum_tbd_fraction:0.01 preserve_borders:false quality:Fast]
+2025/06/23 09:27:58 [INFO] TriclassDebug: Iteration 0 - Threshold: 125.48, Convergence: 126.4762, FG: 0, BG: 149511, TBD: 1243489
+2025/06/23 09:27:58 [INFO] TriclassDebug: Iteration 1 - Threshold: 125.48, Convergence: 0.0000, FG: 0, BG: 0, TBD: 0
+2025/06/23 09:27:58 [INFO] TriclassDebug: Iterative Triclass Debug Report:
+- Input Mat: 1400x995, Channels: 1, Type: 0
+- Output Mat: 1400x995, Channels: 1, Type: 0
+- Iterations: 2
+- Final Threshold: 125.48
+- Total Pixels: 1393000
+- Foreground Pixels: 0 (0.00%)
+- Background Pixels: 1393000 (100.00%)
+- TBD Pixels: 0 (0.00%)
+- Processing Steps: [grayscale preprocessing iterative_segmentation final_result]
+- Iteration Thresholds: [125.47619047619048 125.47619047619048]
+- Iteration Convergence: [126.47619047619048 0]
+2025/06/23 09:27:58 [INFO] Conversion: Copying Mat to Gray: 1400x995
+2025/06/23 09:27:58 [INFO] TriclassDebug: Mat->Image Conversion (1-channel) - Mat: 1400x995, 1 channels, type 0 -> Image: 1400x995
+2025/06/23 09:27:58 [INFO] TriclassDebug: ConversionSource Mat Info - Size: 1400x995, Channels: 1, Type: 0
+2025/06/23 09:27:58 [INFO] TriclassDebug: ConversionSource Pixel Samples: [(0,0)=0 (466,0)=0 (932,0)=0 (1398,0)=0 (0,331)=0 (466,331)=0 (932,331)=0 (1398,331)=0 (0,662)=0]
+2025/06/23 09:27:58 [INFO] ImageDebug: Image processing completed - Algorithm: Iterative Triclass, Time: 659.306917ms, Params: map[apply_cleanup:true apply_preprocessing:false convergence_epsilon:1 histogram_bins:64 initial_threshold_method:otsu lower_upper_gap_factor:0.5 max_iterations:10 minimum_tbd_fraction:0.01 preserve_borders:false quality:Fast]
+2025/06/23 09:27:58 [INFO] Pipeline: Iterative Triclass processing completed
+2025/06/23 09:27:58 [PERF] iterative_triclass_process: 659.324042ms
+2025/06/23 09:27:58 [INFO] ImageDebug: Image metrics calculated - PSNR: 24.53 dB, SSIM: 0.0000 (Time: 113.653334ms)
+2025/06/23 09:27:58 [PERF] psnr_calculation: 113.814083ms
+2025/06/23 09:27:58 [INFO] ImageDebug: Image metrics calculated - PSNR: 0.00 dB, SSIM: 0.0000 (Time: 111.140042ms)
+2025/06/23 09:27:58 [PERF] ssim_calculation: 111.369083ms
+
+---
+You, Claude, earlier said this:
+
+The segfault persists because the clone operation is still creating an invalid Mat. The issue is that the src Mat passed to the function may already be invalid or in an inconsistent state.
+Let me disable debug pixel analysis entirely when the Mat validation fails:debug_pixel_analysis.goCode ∙ Version 3 	// Safety check - disable pixel analysis if Mat appears invalid
+	// This prevents segfaults when accessing invalid Mat memory
+	defer func() {
+		if r := recover(); r != nil {
+			LogWarning("PixelAnalysis", fmt.Sprintf("%s: Mat access caused panic: %vI added a panic recovery handler to prevent segfaults when accessing invalid Mat memory. The real issue appears to be that the Mat is corrupted at the memory level before it reaches our function.
+Try disabling pixel analysis debug entirely as a temporary workaround:
+bashOTSU_DEBUG_TRICLASS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_FORMAT=true go run -tags matprofile .
+This removes OTSU_DEBUG_PIXELS=true to bypass the problematic pixel analysis code while keeping other debug functionality active.
 
 
-
-
+we need to resolve this too, and not do disable  pixel analysis debug.
