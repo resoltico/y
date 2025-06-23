@@ -19,27 +19,6 @@ type ImageDebugInfo struct {
 	ProcessingSteps  []string
 }
 
-package debug
-
-import (
-	"fmt"
-	"time"
-
-	"fyne.io/fyne/v2"
-)
-
-type ImageDebugInfo struct {
-	OriginalURI      fyne.URI
-	ExtensionFromURI string
-	DetectedFormat   string
-	Width            int
-	Height           int
-	Channels         int
-	DataSize         int
-	LoadTime         time.Duration
-	ProcessingSteps  []string
-}
-
 // Global debug toggles (set from main package)
 var (
 	EnableImageDebug       = true
@@ -81,7 +60,7 @@ func (dm *Manager) LogImageFormatMismatch(uri fyne.URI, expectedExt, detectedFor
 	if !EnableImageDebug {
 		return
 	}
-	warning := fmt.Sprintf("Format mismatch detected - URI: %s, Expected: %s, Detected: %s", 
+	warning := fmt.Sprintf("Format mismatch detected - URI: %s, Expected: %s, Detected: %s",
 		uri.String(), expectedExt, detectedFormat)
 	LogWarning("ImageDebug", warning)
 }
@@ -99,7 +78,7 @@ func (dm *Manager) LogImageConversion(fromFormat, toFormat string, conversionTim
 	if !EnableImageDebug {
 		return
 	}
-	LogInfo("ImageDebug", 
+	LogInfo("ImageDebug",
 		fmt.Sprintf("Image conversion: %s -> %s (Time: %v)", fromFormat, toFormat, conversionTime))
 }
 
@@ -107,7 +86,7 @@ func (dm *Manager) LogImageMetrics(psnr, ssim float64, calculationTime time.Dura
 	if !EnablePerformanceDebug {
 		return
 	}
-	LogInfo("ImageDebug", 
-		fmt.Sprintf("Image metrics calculated - PSNR: %.2f dB, SSIM: %.4f (Time: %v)", 
+	LogInfo("ImageDebug",
+		fmt.Sprintf("Image metrics calculated - PSNR: %.2f dB, SSIM: %.4f (Time: %v)",
 			psnr, ssim, calculationTime))
 }

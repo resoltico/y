@@ -10,9 +10,7 @@ import (
 
 type ParameterPanel struct {
 	container           *fyne.Container
-	algorithmRadio      *widget.RadioGroup
 	parametersContainer *fyne.Container
-	generateButton      *widget.Button
 
 	onAlgorithmChange func(string)
 	onParameterChange func(string, interface{})
@@ -34,38 +32,17 @@ func NewParameterPanel(onAlgorithmChange func(string), onParameterChange func(st
 }
 
 func (panel *ParameterPanel) setupPanel() {
-	// Algorithm selection - do not pass callback yet
-	algorithmLabel := widget.NewLabel("Algorithm")
-	panel.algorithmRadio = widget.NewRadioGroup([]string{"2D Otsu", "Iterative Triclass"}, nil)
-
-	// Parameters container
 	parametersLabel := widget.NewLabel("Parameters")
 	panel.parametersContainer = container.NewVBox()
 
-	// Generate button
-	panel.generateButton = widget.NewButton("Generate Preview", panel.onGenerate)
-	panel.generateButton.Importance = widget.HighImportance
-
-	// Main container
 	panel.container = container.NewVBox(
-		algorithmLabel,
-		panel.algorithmRadio,
-		widget.NewSeparator(),
 		parametersLabel,
 		panel.parametersContainer,
-		widget.NewSeparator(),
-		panel.generateButton,
 	)
 }
 
 func (panel *ParameterPanel) Initialize() {
-	// Set callback and selection after all components are ready
-	panel.algorithmRadio.OnChanged = panel.onAlgorithmSelected
-	panel.algorithmRadio.SetSelected("2D Otsu")
-}
-
-func (panel *ParameterPanel) onAlgorithmSelected(algorithm string) {
-	panel.onAlgorithmChange(algorithm)
+	// Ready for parameter updates
 }
 
 func (panel *ParameterPanel) UpdateParameters(algorithm string, params map[string]interface{}) {
@@ -97,13 +74,13 @@ func (panel *ParameterPanel) create2DOtsuParameters(params map[string]interface{
 	// Window size (3-21, odd only)
 	windowSize := panel.getIntParam(params, "window_size", 7)
 	windowSizeSlider := widget.NewSlider(3, 21)
-	windowSizeSlider.Step = 2 // Only odd values
+	windowSizeSlider.Step = 2
 	windowSizeSlider.SetValue(float64(windowSize))
 	windowSizeLabel := widget.NewLabel("Window Size: " + strconv.Itoa(windowSize))
 	windowSizeSlider.OnChanged = func(value float64) {
 		intValue := int(value)
 		if intValue%2 == 0 {
-			intValue++ // Ensure odd
+			intValue++
 		}
 		windowSizeLabel.SetText("Window Size: " + strconv.Itoa(intValue))
 		panel.onParameterChange("window_size", intValue)
@@ -144,17 +121,6 @@ func (panel *ParameterPanel) create2DOtsuParameters(params map[string]interface{
 	}
 	panel.addParameterWithLabel("Pixel Weight Factor", pixelWeightSlider, pixelWeightLabel)
 
-	// Smoothing sigma (0.0-5.0)
-	smoothingSigma := panel.getFloatParam(params, "smoothing_sigma", 1.0)
-	smoothingSigmaSlider := widget.NewSlider(0.0, 5.0)
-	smoothingSigmaSlider.SetValue(smoothingSigma)
-	smoothingSigmaLabel := widget.NewLabel("Smoothing Sigma: " + strconv.FormatFloat(smoothingSigma, 'f', 1, 64))
-	smoothingSigmaSlider.OnChanged = func(value float64) {
-		smoothingSigmaLabel.SetText("Smoothing Sigma: " + strconv.FormatFloat(value, 'f', 1, 64))
-		panel.onParameterChange("smoothing_sigma", value)
-	}
-	panel.addParameterWithLabel("Smoothing Sigma", smoothingSigmaSlider, smoothingSigmaLabel)
-
 	// Checkboxes
 	panel.addCheckbox("Use Log Histogram", "use_log_histogram", params)
 	panel.addCheckbox("Normalize Histogram", "normalize_histogram", params)
@@ -184,18 +150,6 @@ func (panel *ParameterPanel) createIterativeTriclassParameters(params map[string
 	}
 	panel.addParameter("Initial Threshold Method", initialMethod)
 
-	// Histogram bins (16-256)
-	histBins := panel.getIntParam(params, "histogram_bins", 64)
-	histBinsSlider := widget.NewSlider(16, 256)
-	histBinsSlider.SetValue(float64(histBins))
-	histBinsLabel := widget.NewLabel("Histogram Bins: " + strconv.Itoa(histBins))
-	histBinsSlider.OnChanged = func(value float64) {
-		intValue := int(value)
-		histBinsLabel.SetText("Histogram Bins: " + strconv.Itoa(intValue))
-		panel.onParameterChange("histogram_bins", intValue)
-	}
-	panel.addParameterWithLabel("Histogram Bins", histBinsSlider, histBinsLabel)
-
 	// Convergence epsilon (0.1-10.0)
 	convEpsilon := panel.getFloatParam(params, "convergence_epsilon", 1.0)
 	convEpsilonSlider := widget.NewSlider(0.1, 10.0)
@@ -218,28 +172,6 @@ func (panel *ParameterPanel) createIterativeTriclassParameters(params map[string
 		panel.onParameterChange("max_iterations", intValue)
 	}
 	panel.addParameterWithLabel("Max Iterations", maxIterSlider, maxIterLabel)
-
-	// Minimum TBD fraction (0.001-0.2)
-	minTBD := panel.getFloatParam(params, "minimum_tbd_fraction", 0.01)
-	minTBDSlider := widget.NewSlider(0.001, 0.2)
-	minTBDSlider.SetValue(minTBD)
-	minTBDLabel := widget.NewLabel("Min TBD Fraction: " + strconv.FormatFloat(minTBD, 'f', 3, 64))
-	minTBDSlider.OnChanged = func(value float64) {
-		minTBDLabel.SetText("Min TBD Fraction: " + strconv.FormatFloat(value, 'f', 3, 64))
-		panel.onParameterChange("minimum_tbd_fraction", value)
-	}
-	panel.addParameterWithLabel("Min TBD Fraction", minTBDSlider, minTBDLabel)
-
-	// Lower upper gap factor (0.0-1.0)
-	gapFactor := panel.getFloatParam(params, "lower_upper_gap_factor", 0.5)
-	gapFactorSlider := widget.NewSlider(0.0, 1.0)
-	gapFactorSlider.SetValue(gapFactor)
-	gapFactorLabel := widget.NewLabel("Gap Factor: " + strconv.FormatFloat(gapFactor, 'f', 2, 64))
-	gapFactorSlider.OnChanged = func(value float64) {
-		gapFactorLabel.SetText("Gap Factor: " + strconv.FormatFloat(value, 'f', 2, 64))
-		panel.onParameterChange("lower_upper_gap_factor", value)
-	}
-	panel.addParameterWithLabel("Lower Upper Gap Factor", gapFactorSlider, gapFactorLabel)
 
 	// Checkboxes
 	panel.addCheckbox("Apply Preprocessing", "apply_preprocessing", params)

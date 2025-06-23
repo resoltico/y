@@ -210,34 +210,15 @@ go tool pprof http://localhost:6060/debug/pprof/heap
 go tool pprof http://localhost:6060/debug/pprof/gocv.io/x/gocv.Mat
 ```
 
-## Troubleshooting
+### Build-time debugging
 
-### TIFF Loading Issues
-If "Ut feritur ferit.tiff" loads as PNG:
+- Compiler verbose mode: go build -x . shows exact commands and file paths
+- AST inspection: go build -gcflags="-S" . shows assembly output
+- Line-specific errors: go build -gcflags="-d=panic" . for detailed error context
 
-1. Run with `make run-debug-format`
-2. Check terminal output for format mismatch warnings
-3. Look for hex signature analysis in logs
-4. Verify URI extension detection vs standard library result
-5. Check if file is actually TIFF or misnamed PNG
+## License, Author
 
-### Common Debug Patterns
-- Format signature mismatch: File extension doesn't match content
-- URI extension empty: File dialog not preserving extension
-- Standard library failure: Unsupported format variation
-- OpenCV decode failure: Corrupted or unsupported image data
-
-## Contributing
-
-1. Follow the modular structure with appropriate prefixes
-2. Use descriptive, non-subjective code comments
-3. Maintain memory safety with Mat cleanup
-4. Add debug logging for new features
-5. Update documentation for changes
-
-## License
-
-[License information would go here]
+MIT, Ervins Strauhmanis
 
 ## References
 

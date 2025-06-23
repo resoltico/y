@@ -30,24 +30,32 @@ run-debug-format:
 	@echo "Running with focused format detection debugging..."
 	@echo "This will show detailed format detection and URI analysis"
 	@echo "Watch for FormatDebug and ImageDebug log entries"
-	go run -tags matprofile -ldflags="-X main.DebugFormatDetection=true" .
+	OTSU_DEBUG_FORMAT=true go run -tags matprofile .
 
 # Debug targets for specific components
 run-debug-gui:
 	@echo "Running with GUI debugging enabled..."
-	go run -tags matprofile -ldflags="-X main.DebugGUI=true" .
+	OTSU_DEBUG_GUI=true go run -tags matprofile .
 
 run-debug-algorithms:
 	@echo "Running with algorithm debugging enabled..."
-	go run -tags matprofile -ldflags="-X main.DebugAlgorithms=true" .
+	OTSU_DEBUG_ALGORITHMS=true go run -tags matprofile .
 
 run-debug-performance:
 	@echo "Running with performance debugging enabled..."
-	go run -tags matprofile -ldflags="-X main.DebugPerformance=true" .
+	OTSU_DEBUG_PERFORMANCE=true go run -tags matprofile .
+
+run-debug-memory:
+	@echo "Running with memory debugging enabled..."
+	OTSU_DEBUG_MEMORY=true go run -tags matprofile .
+
+run-debug-image:
+	@echo "Running with image processing debugging enabled..."
+	OTSU_DEBUG_IMAGE=true go run -tags matprofile .
 
 run-debug-all:
 	@echo "Running with ALL debugging enabled..."
-	go run -tags matprofile -ldflags="-X main.DebugFormatDetection=true -X main.DebugImageProcessing=true -X main.DebugMemoryTracking=true -X main.DebugPerformance=true -X main.DebugGUI=true -X main.DebugAlgorithms=true" .
+	OTSU_DEBUG_FORMAT=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_MEMORY=true OTSU_DEBUG_PERFORMANCE=true OTSU_DEBUG_GUI=true OTSU_DEBUG_ALGORITHMS=true go run -tags matprofile .
 
 # Clean build artifacts
 clean:
@@ -202,6 +210,15 @@ help:
 	@echo "🚀 PRODUCTION:"
 	@echo "  build                - Build production binary"
 	@echo "  run                  - Run production binary"
+	@echo ""
+	@echo "🐛 DEBUG TARGETS:"
+	@echo "  run-debug-format     - Format detection and image loading"
+	@echo "  run-debug-gui        - GUI events and interactions"
+	@echo "  run-debug-algorithms - Algorithm execution and parameters"
+	@echo "  run-debug-performance- Performance timing and metrics"
+	@echo "  run-debug-memory     - Memory usage and tracking"
+	@echo "  run-debug-image      - Image processing and conversion"
+	@echo "  run-debug-all        - All debugging enabled"
 	@echo ""
 	@echo "🌍 CROSS-PLATFORM:"
 	@echo "  build-windows        - Build for Windows"

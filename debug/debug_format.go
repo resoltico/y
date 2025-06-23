@@ -7,6 +7,9 @@ import (
 	"fyne.io/fyne/v2"
 )
 
+// Global debug toggle for format detection (set from main package)
+var EnableFormatDetection = false
+
 type FormatDetection struct {
 	URI               fyne.URI
 	URIScheme         string
@@ -21,6 +24,10 @@ type FormatDetection struct {
 }
 
 func (dm *Manager) LogFormatDetection(detection *FormatDetection) {
+	if !EnableFormatDetection {
+		return
+	}
+
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 
@@ -122,12 +129,18 @@ func (dm *Manager) analyzeFormatSignature(data []byte) string {
 }
 
 func (dm *Manager) LogExtensionMimeTypeMismatch(uri fyne.URI, expectedFromExt, detectedMime string) {
+	if !EnableFormatDetection {
+		return
+	}
 	warning := fmt.Sprintf("Extension/MimeType mismatch - URI: %s, Expected from extension: %s, Detected MimeType: %s",
 		uri.String(), expectedFromExt, detectedMime)
 	LogWarning("FormatDebug", warning)
 }
 
 func (dm *Manager) LogStandardLibDecodingResult(format string, success bool, errorMsg string) {
+	if !EnableFormatDetection {
+		return
+	}
 	status := "success"
 	if !success {
 		status = fmt.Sprintf("failed: %s", errorMsg)
@@ -137,6 +150,9 @@ func (dm *Manager) LogStandardLibDecodingResult(format string, success bool, err
 }
 
 func (dm *Manager) LogOpenCVDecodingResult(success bool, matChannels int, errorMsg string) {
+	if !EnableFormatDetection {
+		return
+	}
 	status := "success"
 	if !success {
 		status = fmt.Sprintf("failed: %s", errorMsg)
