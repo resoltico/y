@@ -20,6 +20,7 @@ func (app *OtsuApp) handleImageLoad() {
 			return
 		}
 
+		// Use fyne.Do for thread safety in v2.6+
 		fyne.Do(func() {
 			app.mainGUI.UpdateStatus("Loading image...")
 		})
@@ -49,7 +50,7 @@ func (app *OtsuApp) handleImageLoad() {
 					return
 				}
 
-				// Update GUI with loaded image
+				// Update GUI with loaded image using thread-safe calls
 				originalImg := app.pipeline.GetOriginalImage()
 				if originalImg != nil {
 					app.mainGUI.SetOriginalImage(originalImg)
@@ -77,6 +78,7 @@ func (app *OtsuApp) handleImageSave() {
 		}
 		defer writer.Close()
 
+		// Use fyne.Do for thread safety in v2.6+
 		fyne.Do(func() {
 			app.mainGUI.UpdateStatus("Saving image...")
 		})
@@ -95,14 +97,35 @@ func (app *OtsuApp) handleImageSave() {
 }
 
 func (app *OtsuApp) handleAlgorithmChange(algorithm string) {
-	app.otsuManager.SetCurrentAlgorithm(algorithm)
-	params := app.otsuManager.GetParameters(algorithm)
-	app.mainGUI.UpdateParameterPanel(algorithm, params)
+	// Use fyne.Do for thread safety when updating GUI components
+	fyne.Do(func() {
+		app.otsuManager.SetCurrentAlgorithm(algorithm)
+		params := app.otsuManager.GetParameters(algorithm)
+		app.mainGUI.UpdateParameterPanel(algorithm, params)
+		app.mainGUI.UpdateStatus(fmt.Sprintf("Switched to %s algorithm", algorithm))
+	})
 }
 
 func (app *OtsuApp) handleParameterChange(name string, value interface{}) {
 	currentAlgorithm := app.otsuManager.GetCurrentAlgorithm()
-	app.otsuManager.SetParameter(currentAlgorithm, name, value)
+
+	// Validate parameter before setting
+	tempParams := app.otsuManager.GetAllParameters(currentAlgorithm)
+	tempParams[name] = value
+
+	err := app.otsuManager.ValidateParameters(currentAlgorithm, tempParams)
+	if err != nil {
+		fyne.Do(func() {
+			app.showError("Parameter Error", err)
+		})
+		return
+	}
+
+	// Use fyne.Do for thread safety when updating parameters
+	fyne.Do(func() {
+		app.otsuManager.SetParameter(currentAlgorithm, name, value)
+		app.mainGUI.UpdateStatus(fmt.Sprintf("Updated %s parameter", name))
+	})
 }
 
 func (app *OtsuApp) handleGeneratePreview() {
@@ -112,6 +135,7 @@ func (app *OtsuApp) handleGeneratePreview() {
 		return
 	}
 
+	// Use fyne.Do for thread safety when updating GUI
 	fyne.Do(func() {
 		app.mainGUI.UpdateStatus("Generating preview...")
 		app.mainGUI.UpdateProgress(0.0)
@@ -124,6 +148,7 @@ func (app *OtsuApp) handleGeneratePreview() {
 		var processedImg *pipeline.ImageData
 		var err error
 
+		// Process using the modularized algorithms
 		switch currentAlgorithm {
 		case "2D Otsu":
 			processedImg, err = app.pipeline.Process2DOtsu(params)
@@ -133,6 +158,7 @@ func (app *OtsuApp) handleGeneratePreview() {
 			err = fmt.Errorf("unknown algorithm: %s", currentAlgorithm)
 		}
 
+		// All GUI updates must be wrapped in fyne.Do for v2.6+ thread safety
 		fyne.Do(func() {
 			app.mainGUI.UpdateProgress(1.0)
 			if err != nil {
@@ -144,12 +170,18 @@ func (app *OtsuApp) handleGeneratePreview() {
 			if processedImg != nil {
 				app.mainGUI.SetPreviewImage(processedImg)
 
-				// Calculate and display metrics
+				// Calculate and display metrics using thread-safe operations
 				originalData := app.pipeline.GetOriginalImage()
 				if originalData != nil {
-					psnr := app.pipeline.CalculatePSNR(originalData, processedImg)
-					ssim := app.pipeline.CalculateSSIM(originalData, processedImg)
-					app.mainGUI.UpdateMetrics(psnr, ssim)
+					// Run metrics calculation in background but update GUI in fyne.Do
+					go func() {
+						psnr := app.pipeline.CalculatePSNR(originalData, processedImg)
+						ssim := app.pipeline.CalculateSSIM(originalData, processedImg)
+
+						fyne.Do(func() {
+							app.mainGUI.UpdateMetrics(psnr, ssim)
+						})
+					}()
 				}
 
 				app.mainGUI.UpdateStatus("Preview generated successfully")
@@ -159,6 +191,11 @@ func (app *OtsuApp) handleGeneratePreview() {
 }
 
 func (app *OtsuApp) showError(title string, err error) {
+	// Log error using debug manager
 	app.debugManager.LogError("UI", err)
-	dialog.ShowError(err, app.window)
+
+	// Use fyne.Do to ensure dialog is shown on main thread for v2.6+
+	fyne.Do(func() {
+		dialog.ShowError(err, app.window)
+	})
 }

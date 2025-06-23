@@ -1,0 +1,22 @@
+[2:38:15 PM] % make run-debug-all
+Running with ALL debugging enabled...
+OTSU_DEBUG_FORMAT=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_MEMORY=true OTSU_DEBUG_PERFORMANCE=true OTSU_DEBUG_GUI=true OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true go run -tags matprofile .
+# otsu-obliterator/otsu
+otsu/otsu_2d_core.go:87:52: cannot use core.debugManager.StartTiming("2d_otsu_full_process") (value of struct type time.Time) as time.Duration value in argument to core.debugManager.LogAlgorithmComplete
+otsu/otsu_2d_core.go:165:4: too many arguments in call to gocv.BoxFilter
+	have (gocv.Mat, *gocv.Mat, number, image.Point, image.Point, bool, gocv.BorderType)
+	want (gocv.Mat, *gocv.Mat, int, image.Point)
+otsu/otsu_2d_core.go:183:4: too many arguments in call to gocv.BoxFilter
+	have (gocv.Mat, *gocv.Mat, number, image.Point, image.Point, bool, gocv.BorderType)
+	want (gocv.Mat, *gocv.Mat, int, image.Point)
+otsu/otsu_2d_threshold.go:5:2: "math" imported and not used
+otsu/otsu_2d_threshold.go:285:76: cannot use stepTime (variable of struct type time.Time) as time.Duration value in argument to core.debugManager.LogAlgorithmStep
+otsu/otsu_iterative_core.go:103:63: cannot use startTime (variable of struct type time.Time) as time.Duration value in argument to core.debugManager.LogAlgorithmComplete
+otsu/otsu_iterative_postprocess.go:123:21: not enough arguments in call to gocv.Erode
+	have (gocv.Mat, *gocv.Mat)
+	want (gocv.Mat, *gocv.Mat, gocv.Mat)
+make: *** [run-debug-all] Error 1
+[2:38:26 PM] % 
+
+
+
