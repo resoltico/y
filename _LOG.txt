@@ -1,0 +1,8 @@
+[6:36:46 AM] % make run
+Running production build...
+go run .
+# otsu-obliterator/debug
+debug/debug_image.go:22:1: syntax error: non-declaration statement outside function body
+debug/debug_image.go:24:1: syntax error: imports must appear before other declarations
+make: *** [run] Error 1
+[6:41:42 AM] % 
