@@ -2,7 +2,7 @@ package otsu
 
 import (
 	"fmt"
-	"math"
+	"time"
 
 	"gocv.io/x/gocv"
 )
@@ -16,8 +16,8 @@ type TwoDThreshold struct {
 
 // findOptimalThreshold implements the mathematical 2D Otsu criterion
 func (core *TwoDOtsuCore) findOptimalThreshold() TwoDThreshold {
-	stepTime := core.debugManager.StartTiming("2d_otsu_threshold_search")
-	defer core.debugManager.EndTiming("2d_otsu_threshold_search", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("2D Otsu", "threshold_search", time.Since(stepTime))
 
 	bins := core.histogramData.bins
 	bestThreshold := TwoDThreshold{
@@ -62,8 +62,8 @@ func (core *TwoDOtsuCore) findOptimalThreshold() TwoDThreshold {
 		bestThreshold = core.refineThreshold(bestThreshold, totalStats)
 	}
 
-	core.debugManager.LogThresholdCalculation("2D Otsu Threshold", 
-		fmt.Sprintf("(%d,%d)", bestThreshold.PixelThreshold, bestThreshold.FeatureThreshold), 
+	core.debugManager.LogThresholdCalculation("2D Otsu Threshold",
+		fmt.Sprintf("(%d,%d)", bestThreshold.PixelThreshold, bestThreshold.FeatureThreshold),
 		fmt.Sprintf("variance=%.6f", bestThreshold.Variance))
 
 	return bestThreshold
@@ -71,11 +71,11 @@ func (core *TwoDOtsuCore) findOptimalThreshold() TwoDThreshold {
 
 // TotalStatistics holds global image statistics
 type TotalStatistics struct {
-	TotalWeight   float64
-	TotalMoment1  float64 // First moment (mean)
-	TotalMoment2  float64 // Second moment for variance calculation
-	PixelMean     float64
-	FeatureMean   float64
+	TotalWeight  float64
+	TotalMoment1 float64 // First moment (mean)
+	TotalMoment2 float64 // Second moment for variance calculation
+	PixelMean    float64
+	FeatureMean  float64
 }
 
 // calculateTotalStatistics computes global statistics for the 2D histogram
@@ -86,11 +86,11 @@ func (core *TwoDOtsuCore) calculateTotalStatistics() TotalStatistics {
 	for i := 0; i < bins; i++ {
 		for j := 0; j < bins; j++ {
 			weight := core.histogramData.histogram[i][j]
-			
+
 			stats.TotalWeight += weight
 			stats.TotalMoment1 += weight * float64(i*bins+j)
 			stats.TotalMoment2 += weight * float64(i*bins+j) * float64(i*bins+j)
-			
+
 			// Separate pixel and feature statistics
 			stats.PixelMean += weight * float64(i)
 			stats.FeatureMean += weight * float64(j)
@@ -211,8 +211,8 @@ func (core *TwoDOtsuCore) calculateBetweenClassVariance(stats ClassStatistics) f
 
 // refineThreshold performs local search around the coarse threshold
 func (core *TwoDOtsuCore) refineThreshold(coarseThreshold TwoDThreshold, totalStats TotalStatistics) TwoDThreshold {
-	stepTime := core.debugManager.StartTiming("2d_otsu_threshold_refinement")
-	defer core.debugManager.EndTiming("2d_otsu_threshold_refinement", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("2D Otsu", "threshold_refinement", time.Since(stepTime))
 
 	bestThreshold := coarseThreshold
 	maxVariance := coarseThreshold.Variance
@@ -250,14 +250,14 @@ func (core *TwoDOtsuCore) refineThreshold(coarseThreshold TwoDThreshold, totalSt
 
 // applyBinaryThreshold creates the final binary image using the calculated threshold
 func (core *TwoDOtsuCore) applyBinaryThreshold(src, neighborhood *gocv.Mat, threshold TwoDThreshold) gocv.Mat {
-	stepTime := core.debugManager.StartTiming("2d_otsu_binary_threshold_application")
-	defer core.debugManager.EndTiming("2d_otsu_binary_threshold_application", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("2D Otsu", "binary_threshold_application", time.Since(stepTime))
 
 	result := gocv.NewMatWithSize(src.Rows(), src.Cols(), gocv.MatTypeCV8UC1)
-	
+
 	bins := core.histogramData.bins
 	pixelWeight := core.getFloatParam("pixel_weight_factor")
-	
+
 	// Convert threshold back to intensity values
 	pixelThresholdVal := float64(threshold.PixelThreshold) * 255.0 / float64(bins-1)
 	featureThresholdVal := float64(threshold.FeatureThreshold) * 255.0 / float64(bins-1)
@@ -277,12 +277,11 @@ func (core *TwoDOtsuCore) applyBinaryThreshold(src, neighborhood *gocv.Mat, thre
 			if pixelVal > pixelThresholdVal && blendedFeature > featureThresholdVal {
 				result.SetUCharAt(y, x, 255) // Foreground
 			} else {
-				result.SetUCharAt(y, x, 0)   // Background
+				result.SetUCharAt(y, x, 0) // Background
 			}
 		}
 	}
 
-	core.debugManager.LogAlgorithmStep("2D Otsu", "binary_threshold_applied", stepTime)
 	return result
 }
 
@@ -298,9 +297,9 @@ func (threshold *TwoDThreshold) GetThresholdInfo() map[string]interface{} {
 
 // IsValid checks if the threshold is mathematically valid
 func (threshold *TwoDThreshold) IsValid(maxBins int) bool {
-	return threshold.PixelThreshold >= 0 && 
-		   threshold.PixelThreshold < maxBins &&
-		   threshold.FeatureThreshold >= 0 && 
-		   threshold.FeatureThreshold < maxBins &&
-		   threshold.Variance >= 0.0
+	return threshold.PixelThreshold >= 0 &&
+		threshold.PixelThreshold < maxBins &&
+		threshold.FeatureThreshold >= 0 &&
+		threshold.FeatureThreshold < maxBins &&
+		threshold.Variance >= 0.0
 }

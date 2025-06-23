@@ -3,14 +3,15 @@ package otsu
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"gocv.io/x/gocv"
 )
 
 // calculateRegionThreshold computes the threshold for the current active region
 func (core *IterativeTriclassCore) calculateRegionThreshold() (float64, error) {
-	stepTime := core.debugManager.StartTiming("triclass_threshold_calculation")
-	defer core.debugManager.EndTiming("triclass_threshold_calculation", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "threshold_calculation", time.Since(stepTime))
 
 	// Build histogram for active region only
 	histogram, err := core.buildRegionHistogram()
@@ -169,8 +170,8 @@ func (core *IterativeTriclassCore) calculateMedianThreshold(histogram []int) flo
 
 // performTriclassSegmentation segments the current region into three classes
 func (core *IterativeTriclassCore) performTriclassSegmentation(threshold float64) (gocv.Mat, gocv.Mat, gocv.Mat, error) {
-	stepTime := core.debugManager.StartTiming("triclass_segmentation")
-	defer core.debugManager.EndTiming("triclass_segmentation", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "segmentation", time.Since(stepTime))
 
 	if core.iterationData.CurrentRegion.Empty() {
 		return gocv.NewMat(), gocv.NewMat(), gocv.NewMat(), fmt.Errorf("current region is empty")
@@ -227,8 +228,8 @@ func (core *IterativeTriclassCore) performTriclassSegmentation(threshold float64
 
 // updateFinalResult incorporates current iteration results into final segmentation
 func (core *IterativeTriclassCore) updateFinalResult(foreground, background *gocv.Mat) {
-	stepTime := core.debugManager.StartTiming("triclass_result_update")
-	defer core.debugManager.EndTiming("triclass_result_update", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "result_update", time.Since(stepTime))
 
 	rows := core.iterationData.FinalResult.Rows()
 	cols := core.iterationData.FinalResult.Cols()
@@ -251,11 +252,11 @@ func (core *IterativeTriclassCore) updateFinalResult(foreground, background *goc
 
 // updateCurrentRegion prepares the next iteration region from TBD pixels
 func (core *IterativeTriclassCore) updateCurrentRegion(tbdMask *gocv.Mat) error {
-	stepTime := core.debugManager.StartTiming("triclass_region_update")
-	defer core.debugManager.EndTiming("triclass_region_update", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "region_update", time.Since(stepTime))
 
 	// Create new region containing only TBD pixels with their original values
-	newRegion := gocv.NewMatWithSize(core.iterationData.CurrentRegion.Rows(), 
+	newRegion := gocv.NewMatWithSize(core.iterationData.CurrentRegion.Rows(),
 		core.iterationData.CurrentRegion.Cols(), gocv.MatTypeCV8UC1)
 	newRegion.SetTo(gocv.NewScalar(0, 0, 0, 0))
 
@@ -284,8 +285,8 @@ func (core *IterativeTriclassCore) updateCurrentRegion(tbdMask *gocv.Mat) error 
 
 // assignRemainingTBDPixels assigns final TBD pixels using simple threshold
 func (core *IterativeTriclassCore) assignRemainingTBDPixels(tbdMask *gocv.Mat, threshold float64) {
-	stepTime := core.debugManager.StartTiming("triclass_final_assignment")
-	defer core.debugManager.EndTiming("triclass_final_assignment", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "final_assignment", time.Since(stepTime))
 
 	rows := tbdMask.Rows()
 	cols := tbdMask.Cols()
@@ -295,7 +296,7 @@ func (core *IterativeTriclassCore) assignRemainingTBDPixels(tbdMask *gocv.Mat, t
 			if tbdMask.GetUCharAt(y, x) > 0 {
 				// Get original pixel value
 				originalValue := float64(core.iterationData.CurrentRegion.GetUCharAt(y, x))
-				
+
 				// Simple threshold assignment
 				if originalValue >= threshold {
 					core.iterationData.FinalResult.SetUCharAt(y, x, 255) // Foreground
@@ -329,13 +330,13 @@ func (core *IterativeTriclassCore) GetProcessingStatistics() map[string]interfac
 	finalBackgroundPixels := core.iterationData.TotalPixels - finalForegroundPixels
 
 	return map[string]interface{}{
-		"total_pixels":          core.iterationData.TotalPixels,
-		"processed_pixels":      core.iterationData.ProcessedPixels,
-		"final_foreground":      finalForegroundPixels,
-		"final_background":      finalBackgroundPixels,
-		"iteration_count":       core.iterationData.IterationCount,
-		"convergence_achieved":  len(core.convergenceLog) > 0,
-		"final_convergence":     core.getFinalConvergence(),
+		"total_pixels":         core.iterationData.TotalPixels,
+		"processed_pixels":     core.iterationData.ProcessedPixels,
+		"final_foreground":     finalForegroundPixels,
+		"final_background":     finalBackgroundPixels,
+		"iteration_count":      core.iterationData.IterationCount,
+		"convergence_achieved": len(core.convergenceLog) > 0,
+		"final_convergence":    core.getFinalConvergence(),
 	}
 }
 

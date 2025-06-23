@@ -3,6 +3,7 @@ package otsu
 import (
 	"fmt"
 	"image"
+	"time"
 
 	"gocv.io/x/gocv"
 
@@ -11,8 +12,8 @@ import (
 
 // applyPostprocessing applies cleanup operations to the final result
 func (core *IterativeTriclassCore) applyPostprocessing() (gocv.Mat, error) {
-	stepTime := core.debugManager.StartTiming("triclass_postprocessing")
-	defer core.debugManager.EndTiming("triclass_postprocessing", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "postprocessing", time.Since(stepTime))
 
 	if core.iterationData.FinalResult.Empty() {
 		return gocv.NewMat(), fmt.Errorf("final result is empty")
@@ -47,8 +48,8 @@ func (core *IterativeTriclassCore) applyPostprocessing() (gocv.Mat, error) {
 
 // applyMorphologicalCleanup performs morphological operations to clean the result
 func (core *IterativeTriclassCore) applyMorphologicalCleanup(src *gocv.Mat) (gocv.Mat, error) {
-	stepTime := core.debugManager.StartTiming("triclass_morphological_cleanup")
-	defer core.debugManager.EndTiming("triclass_morphological_cleanup", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "morphological_cleanup", time.Since(stepTime))
 
 	// Create morphological kernels using latest GoCV API
 	smallKernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: 3, Y: 3})
@@ -92,8 +93,8 @@ func (core *IterativeTriclassCore) applyMorphologicalCleanup(src *gocv.Mat) (goc
 
 // preserveBorders ensures border pixels are handled appropriately
 func (core *IterativeTriclassCore) preserveBorders(src *gocv.Mat) (gocv.Mat, error) {
-	stepTime := core.debugManager.StartTiming("triclass_border_preservation")
-	defer core.debugManager.EndTiming("triclass_border_preservation", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "border_preservation", time.Since(stepTime))
 
 	result := src.Clone()
 	rows := result.Rows()
@@ -106,12 +107,12 @@ func (core *IterativeTriclassCore) preserveBorders(src *gocv.Mat) (gocv.Mat, err
 
 	// Set border pixels to 255 in mask
 	for x := 0; x < cols; x++ {
-		borderMask.SetUCharAt(0, x, 255)         // Top border
-		borderMask.SetUCharAt(rows-1, x, 255)    // Bottom border
+		borderMask.SetUCharAt(0, x, 255)      // Top border
+		borderMask.SetUCharAt(rows-1, x, 255) // Bottom border
 	}
 	for y := 0; y < rows; y++ {
-		borderMask.SetUCharAt(y, 0, 255)         // Left border
-		borderMask.SetUCharAt(y, cols-1, 255)    // Right border
+		borderMask.SetUCharAt(y, 0, 255)      // Left border
+		borderMask.SetUCharAt(y, cols-1, 255) // Right border
 	}
 
 	// Apply erosion to slightly shrink foreground regions near borders
@@ -120,7 +121,8 @@ func (core *IterativeTriclassCore) preserveBorders(src *gocv.Mat) (gocv.Mat, err
 
 	eroded := gocv.NewMat()
 	defer eroded.Close()
-	gocv.Erode(result, &eroded)
+	// Use the correct Erode function signature with kernel parameter
+	gocv.Erode(result, &eroded, kernel)
 
 	// Restore border pixels from original
 	for y := 0; y < rows; y++ {
@@ -140,14 +142,14 @@ func (core *IterativeTriclassCore) preserveBorders(src *gocv.Mat) (gocv.Mat, err
 	return result, nil
 }
 
-// logFinalResults logs comprehensive results and statistics
+// logFinalResults logs results and statistics
 func (core *IterativeTriclassCore) logFinalResults() {
 	if core.iterationData == nil {
 		return
 	}
 
-	stepTime := core.debugManager.StartTiming("triclass_final_logging")
-	defer core.debugManager.EndTiming("triclass_final_logging", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "final_logging", time.Since(stepTime))
 
 	// Calculate final statistics
 	totalPixels := core.iterationData.TotalPixels
@@ -225,7 +227,7 @@ func (core *IterativeTriclassCore) getIterationConvergences() []float64 {
 	return convergences
 }
 
-// logConvergenceAnalysis provides detailed convergence analysis
+// logConvergenceAnalysis provides convergence analysis
 func (core *IterativeTriclassCore) logConvergenceAnalysis() {
 	if len(core.convergenceLog) == 0 {
 		return
@@ -235,7 +237,7 @@ func (core *IterativeTriclassCore) logConvergenceAnalysis() {
 	totalIterations := len(core.convergenceLog)
 	finalConvergence := core.convergenceLog[totalIterations-1].ConvergenceValue
 	averageConvergence := 0.0
-	
+
 	for _, conv := range core.convergenceLog {
 		averageConvergence += conv.ConvergenceValue
 	}

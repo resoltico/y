@@ -38,7 +38,7 @@ func (dm *Manager) LogAlgorithmStep(algorithm, step string, duration time.Durati
 	LogInfo("AlgorithmDebug", fmt.Sprintf("%s - %s completed in %v", algorithm, step, duration))
 }
 
-// LogAlgorithmComplete logs algorithm completion with comprehensive statistics
+// LogAlgorithmComplete logs algorithm completion with statistics
 func (dm *Manager) LogAlgorithmComplete(algorithm string, totalDuration time.Duration, outputSize string) {
 	if !EnableAlgorithmDebug {
 		return
@@ -140,7 +140,7 @@ func (dm *Manager) LogAlgorithmError(algorithm string, step string, err error, c
 	LogError("AlgorithmDebug", fmt.Sprintf("%s error in %s: %v%s", algorithm, step, err, contextStr))
 }
 
-// LogPerformanceMetrics logs detailed performance analysis
+// LogPerformanceMetrics logs performance analysis
 func (dm *Manager) LogPerformanceMetrics(algorithm string, metrics map[string]interface{}) {
 	if !EnableAlgorithmDebug {
 		return
@@ -184,7 +184,7 @@ func formatParameters(params map[string]interface{}) string {
 	return result
 }
 
-// CreateAlgorithmDebugInfo creates a comprehensive debug information structure
+// CreateAlgorithmDebugInfo creates debug information structure
 func (dm *Manager) CreateAlgorithmDebugInfo(algorithm string, params map[string]interface{}) *AlgorithmDebugInfo {
 	return &AlgorithmDebugInfo{
 		AlgorithmName:    algorithm,
@@ -214,7 +214,7 @@ func (info *AlgorithmDebugInfo) AddMemoryUsage(component string, bytes int64) {
 	info.MemoryUsage[component] = bytes
 }
 
-// GenerateReport creates a comprehensive debug report
+// GenerateReport creates debug report
 func (info *AlgorithmDebugInfo) GenerateReport() string {
 	report := fmt.Sprintf(`Algorithm Debug Report: %s
 Input Dimensions: %s

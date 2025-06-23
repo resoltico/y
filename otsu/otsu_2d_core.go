@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"time"
 
 	"gocv.io/x/gocv"
 
@@ -19,13 +20,13 @@ type TwoDOtsuCore struct {
 
 // TwoDHistogramData encapsulates 2D histogram construction and processing
 type TwoDHistogramData struct {
-	histogram     [][]float64
-	pixelCounts   [][]int
-	bins          int
-	totalPixels   int
-	smoothed      bool
-	normalized    bool
-	logScaled     bool
+	histogram   [][]float64
+	pixelCounts [][]int
+	bins        int
+	totalPixels int
+	smoothed    bool
+	normalized  bool
+	logScaled   bool
 }
 
 // NewTwoDOtsuCore creates a new 2D Otsu processor with debug support
@@ -43,8 +44,7 @@ func (core *TwoDOtsuCore) Process(src gocv.Mat) (gocv.Mat, error) {
 	}
 
 	core.debugManager.LogAlgorithmStart("2D Otsu", core.params)
-	startTime := core.debugManager.StartTiming("2d_otsu_full_process")
-	defer core.debugManager.EndTiming("2d_otsu_full_process", startTime)
+	startTime := time.Now()
 
 	// Ensure we have a working copy that won't be modified
 	working := src.Clone()
@@ -84,7 +84,7 @@ func (core *TwoDOtsuCore) Process(src gocv.Mat) (gocv.Mat, error) {
 	// Apply threshold to create binary result
 	result := core.applyBinaryThreshold(&preprocessed, &neighborhood, threshold)
 
-	core.debugManager.LogAlgorithmComplete("2D Otsu", core.debugManager.StartTiming("2d_otsu_full_process"), 
+	core.debugManager.LogAlgorithmComplete("2D Otsu", time.Since(startTime),
 		fmt.Sprintf("%dx%d", result.Cols(), result.Rows()))
 
 	return result, nil
@@ -92,8 +92,8 @@ func (core *TwoDOtsuCore) Process(src gocv.Mat) (gocv.Mat, error) {
 
 // prepareGrayscaleImage converts input to grayscale using latest GoCV APIs
 func (core *TwoDOtsuCore) prepareGrayscaleImage(src *gocv.Mat) (gocv.Mat, error) {
-	stepTime := core.debugManager.StartTiming("2d_otsu_grayscale_conversion")
-	defer core.debugManager.EndTiming("2d_otsu_grayscale_conversion", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("2D Otsu", "grayscale_conversion", time.Since(stepTime))
 
 	gray := gocv.NewMat()
 
@@ -117,8 +117,8 @@ func (core *TwoDOtsuCore) prepareGrayscaleImage(src *gocv.Mat) (gocv.Mat, error)
 
 // applyPreprocessing applies CLAHE and noise reduction if enabled
 func (core *TwoDOtsuCore) applyPreprocessing(src *gocv.Mat) (gocv.Mat, error) {
-	stepTime := core.debugManager.StartTiming("2d_otsu_preprocessing")
-	defer core.debugManager.EndTiming("2d_otsu_preprocessing", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("2D Otsu", "preprocessing", time.Since(stepTime))
 
 	result := gocv.NewMat()
 
@@ -128,12 +128,12 @@ func (core *TwoDOtsuCore) applyPreprocessing(src *gocv.Mat) (gocv.Mat, error) {
 		defer clahe.Close()
 
 		clahe.Apply(*src, &result)
-		
+
 		// Optional denoising
 		if core.getStringParam("quality") == "Best" {
 			denoised := gocv.NewMat()
 			defer denoised.Close()
-			
+
 			// Use latest denoising API with automatic parameter selection
 			gocv.FastNlMeansDenoising(result, &denoised)
 			denoised.CopyTo(&result)
@@ -147,8 +147,8 @@ func (core *TwoDOtsuCore) applyPreprocessing(src *gocv.Mat) (gocv.Mat, error) {
 
 // calculateNeighborhoodFeatures computes neighborhood-based features
 func (core *TwoDOtsuCore) calculateNeighborhoodFeatures(src *gocv.Mat) (gocv.Mat, error) {
-	stepTime := core.debugManager.StartTiming("2d_otsu_neighborhood_calculation")
-	defer core.debugManager.EndTiming("2d_otsu_neighborhood_calculation", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("2D Otsu", "neighborhood_calculation", time.Since(stepTime))
 
 	windowSize := core.getIntParam("window_size")
 	if windowSize%2 == 0 {
@@ -160,9 +160,8 @@ func (core *TwoDOtsuCore) calculateNeighborhoodFeatures(src *gocv.Mat) (gocv.Mat
 
 	switch metric {
 	case "mean":
-		// Use latest blur API for mean calculation
-		gocv.BoxFilter(*src, &result, -1, image.Point{X: windowSize, Y: windowSize}, 
-			image.Point{X: -1, Y: -1}, true, gocv.BorderReflect101)
+		// Use latest blur API for mean calculation - simplified parameters
+		gocv.BoxFilter(*src, &result, -1, image.Point{X: windowSize, Y: windowSize})
 
 	case "median":
 		// Median filtering with proper bounds checking
@@ -178,9 +177,8 @@ func (core *TwoDOtsuCore) calculateNeighborhoodFeatures(src *gocv.Mat) (gocv.Mat
 			sigma, sigma, gocv.BorderReflect101)
 
 	default:
-		// Default to mean
-		gocv.BoxFilter(*src, &result, -1, image.Point{X: windowSize, Y: windowSize}, 
-			image.Point{X: -1, Y: -1}, true, gocv.BorderReflect101)
+		// Default to mean - simplified parameters
+		gocv.BoxFilter(*src, &result, -1, image.Point{X: windowSize, Y: windowSize})
 	}
 
 	return result, nil
@@ -188,8 +186,8 @@ func (core *TwoDOtsuCore) calculateNeighborhoodFeatures(src *gocv.Mat) (gocv.Mat
 
 // build2DHistogram constructs the 2D histogram using vectorized operations
 func (core *TwoDOtsuCore) build2DHistogram(src, neighborhood *gocv.Mat) error {
-	stepTime := core.debugManager.StartTiming("2d_otsu_histogram_building")
-	defer core.debugManager.EndTiming("2d_otsu_histogram_building", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("2D Otsu", "histogram_building", time.Since(stepTime))
 
 	histBins := core.getIntParam("histogram_bins")
 	pixelWeight := core.getFloatParam("pixel_weight_factor")
@@ -263,8 +261,8 @@ func (core *TwoDOtsuCore) processHistogram() {
 
 // applyGaussianSmoothing applies 2D Gaussian smoothing to the histogram
 func (core *TwoDOtsuCore) applyGaussianSmoothing(sigma float64) {
-	stepTime := core.debugManager.StartTiming("2d_otsu_histogram_smoothing")
-	defer core.debugManager.EndTiming("2d_otsu_histogram_smoothing", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("2D Otsu", "histogram_smoothing", time.Since(stepTime))
 
 	kernelSize := int(sigma*6) + 1
 	if kernelSize%2 == 0 {
@@ -363,8 +361,8 @@ func (core *TwoDOtsuCore) getIntParam(name string) int {
 	}
 	// Return sensible defaults
 	defaults := map[string]int{
-		"window_size":     7,
-		"histogram_bins":  64,
+		"window_size":    7,
+		"histogram_bins": 64,
 	}
 	if def, exists := defaults[name]; exists {
 		return def
@@ -401,7 +399,7 @@ func (core *TwoDOtsuCore) getStringParam(name string) string {
 	// Return sensible defaults
 	defaults := map[string]string{
 		"neighbourhood_metric": "mean",
-		"quality":             "Fast",
+		"quality":              "Fast",
 	}
 	if def, exists := defaults[name]; exists {
 		return def

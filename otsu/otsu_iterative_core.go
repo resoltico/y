@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"time"
 
 	"gocv.io/x/gocv"
 
@@ -30,14 +31,14 @@ type IterationData struct {
 
 // ConvergenceInfo stores information about each iteration
 type ConvergenceInfo struct {
-	Iteration         int
-	Threshold         float64
-	ConvergenceValue  float64
-	ForegroundCount   int
-	BackgroundCount   int
-	TBDCount          int
-	TBDFraction       float64
-	ProcessingTime    float64 // in milliseconds
+	Iteration        int
+	Threshold        float64
+	ConvergenceValue float64
+	ForegroundCount  int
+	BackgroundCount  int
+	TBDCount         int
+	TBDFraction      float64
+	ProcessingTime   float64 // in milliseconds
 }
 
 // NewIterativeTriclassCore creates a new iterative triclass processor
@@ -60,8 +61,7 @@ func (core *IterativeTriclassCore) Process(src gocv.Mat) (gocv.Mat, error) {
 	}
 
 	core.debugManager.LogAlgorithmStart("Iterative Triclass", core.params)
-	startTime := core.debugManager.StartTiming("iterative_triclass_full_process")
-	defer core.debugManager.EndTiming("iterative_triclass_full_process", startTime)
+	startTime := time.Now()
 
 	// Create safe working copy
 	working := src.Clone()
@@ -100,7 +100,7 @@ func (core *IterativeTriclassCore) Process(src gocv.Mat) (gocv.Mat, error) {
 	// Log final results
 	core.logFinalResults()
 
-	core.debugManager.LogAlgorithmComplete("Iterative Triclass", startTime,
+	core.debugManager.LogAlgorithmComplete("Iterative Triclass", time.Since(startTime),
 		fmt.Sprintf("%dx%d", result.Cols(), result.Rows()))
 
 	return result, nil
@@ -108,8 +108,8 @@ func (core *IterativeTriclassCore) Process(src gocv.Mat) (gocv.Mat, error) {
 
 // prepareGrayscaleImage converts input to grayscale using latest GoCV APIs
 func (core *IterativeTriclassCore) prepareGrayscaleImage(src *gocv.Mat) (gocv.Mat, error) {
-	stepTime := core.debugManager.StartTiming("triclass_grayscale_conversion")
-	defer core.debugManager.EndTiming("triclass_grayscale_conversion", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "grayscale_conversion", time.Since(stepTime))
 
 	gray := gocv.NewMat()
 
@@ -137,8 +137,8 @@ func (core *IterativeTriclassCore) prepareGrayscaleImage(src *gocv.Mat) (gocv.Ma
 
 // applyPreprocessing applies CLAHE and denoising if enabled
 func (core *IterativeTriclassCore) applyPreprocessing(src *gocv.Mat) (gocv.Mat, error) {
-	stepTime := core.debugManager.StartTiming("triclass_preprocessing")
-	defer core.debugManager.EndTiming("triclass_preprocessing", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "preprocessing", time.Since(stepTime))
 
 	result := gocv.NewMat()
 
@@ -198,8 +198,8 @@ func (core *IterativeTriclassCore) cleanupIterationData() {
 
 // performIterativeSegmentation executes the main iterative triclass algorithm
 func (core *IterativeTriclassCore) performIterativeSegmentation(src *gocv.Mat) error {
-	stepTime := core.debugManager.StartTiming("triclass_iterative_segmentation")
-	defer core.debugManager.EndTiming("triclass_iterative_segmentation", stepTime)
+	stepTime := time.Now()
+	defer core.debugManager.LogAlgorithmStep("Iterative Triclass", "iterative_segmentation", time.Since(stepTime))
 
 	maxIterations := core.getIntParam("max_iterations")
 	convergenceEpsilon := core.getFloatParam("convergence_epsilon")
@@ -208,33 +208,29 @@ func (core *IterativeTriclassCore) performIterativeSegmentation(src *gocv.Mat) e
 	var previousThreshold float64 = -1.0
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
-		iterStartTime := core.debugManager.StartTiming(fmt.Sprintf("triclass_iteration_%d", iteration))
+		iterStartTime := time.Now()
 
 		// Check if current region has sufficient pixels to process
 		activePixels := gocv.CountNonZero(core.iterationData.CurrentRegion)
 		if activePixels == 0 {
-			core.debugManager.EndTiming(fmt.Sprintf("triclass_iteration_%d", iteration), iterStartTime)
 			break
 		}
 
 		// Calculate threshold for current region
 		threshold, err := core.calculateRegionThreshold()
 		if err != nil {
-			core.debugManager.EndTiming(fmt.Sprintf("triclass_iteration_%d", iteration), iterStartTime)
 			return err
 		}
 
 		// Check convergence
 		convergence := math.Abs(threshold - previousThreshold)
 		if previousThreshold >= 0 && convergence < convergenceEpsilon {
-			core.debugManager.EndTiming(fmt.Sprintf("triclass_iteration_%d", iteration), iterStartTime)
 			break
 		}
 
 		// Perform triclass segmentation
 		foreground, background, tbd, err := core.performTriclassSegmentation(threshold)
 		if err != nil {
-			core.debugManager.EndTiming(fmt.Sprintf("triclass_iteration_%d", iteration), iterStartTime)
 			return err
 		}
 
@@ -251,14 +247,14 @@ func (core *IterativeTriclassCore) performIterativeSegmentation(src *gocv.Mat) e
 
 		// Log iteration info
 		convInfo := ConvergenceInfo{
-			Iteration:         iteration,
-			Threshold:         threshold,
-			ConvergenceValue:  convergence,
-			ForegroundCount:   foregroundCount,
-			BackgroundCount:   backgroundCount,
-			TBDCount:          tbdCount,
-			TBDFraction:       tbdFraction,
-			ProcessingTime:    float64(core.debugManager.StartTiming(fmt.Sprintf("triclass_iteration_%d", iteration)).UnixNano()) / 1e6,
+			Iteration:        iteration,
+			Threshold:        threshold,
+			ConvergenceValue: convergence,
+			ForegroundCount:  foregroundCount,
+			BackgroundCount:  backgroundCount,
+			TBDCount:         tbdCount,
+			TBDFraction:      tbdFraction,
+			ProcessingTime:   float64(time.Since(iterStartTime).Nanoseconds()) / 1e6,
 		}
 		core.convergenceLog = append(core.convergenceLog, convInfo)
 
@@ -272,7 +268,6 @@ func (core *IterativeTriclassCore) performIterativeSegmentation(src *gocv.Mat) e
 			foreground.Close()
 			background.Close()
 			tbd.Close()
-			core.debugManager.EndTiming(fmt.Sprintf("triclass_iteration_%d", iteration), iterStartTime)
 			break
 		}
 
@@ -283,13 +278,11 @@ func (core *IterativeTriclassCore) performIterativeSegmentation(src *gocv.Mat) e
 		tbd.Close()
 
 		if err != nil {
-			core.debugManager.EndTiming(fmt.Sprintf("triclass_iteration_%d", iteration), iterStartTime)
 			return err
 		}
 
 		previousThreshold = threshold
 		core.iterationData.IterationCount++
-		core.debugManager.EndTiming(fmt.Sprintf("triclass_iteration_%d", iteration), iterStartTime)
 	}
 
 	return nil
@@ -301,8 +294,8 @@ func (core *IterativeTriclassCore) getIntParam(name string) int {
 		return value
 	}
 	defaults := map[string]int{
-		"max_iterations":   10,
-		"histogram_bins":   64,
+		"max_iterations": 10,
+		"histogram_bins": 64,
 	}
 	if def, exists := defaults[name]; exists {
 		return def
@@ -315,9 +308,9 @@ func (core *IterativeTriclassCore) getFloatParam(name string) float64 {
 		return value
 	}
 	defaults := map[string]float64{
-		"convergence_epsilon":      1.0,
-		"minimum_tbd_fraction":     0.01,
-		"lower_upper_gap_factor":   0.5,
+		"convergence_epsilon":    1.0,
+		"minimum_tbd_fraction":   0.01,
+		"lower_upper_gap_factor": 0.5,
 	}
 	if def, exists := defaults[name]; exists {
 		return def
