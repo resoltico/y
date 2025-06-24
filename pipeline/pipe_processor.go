@@ -21,12 +21,14 @@ func (pipeline *ImagePipeline) Process2DOtsu(params map[string]interface{}) (*Im
 	processStartTime := time.Now()
 	pipeline.updateProgress(0.1)
 
-	// Create processor
-	processor := otsu.NewTwoDOtsuProcessor(params)
+	// Create processor with memory manager
+	processor := otsu.NewTwoDOtsuProcessor(params, pipeline.memoryManager)
 	pipeline.updateProgress(0.3)
 
 	// Process image
 	srcMat := pipeline.originalImage.Mat.Clone()
+	defer pipeline.memoryManager.ReleaseMat(srcMat)
+
 	resultMat, err := processor.Process(srcMat)
 	if err != nil {
 		return nil, fmt.Errorf("processing failed: %w", err)
@@ -36,14 +38,14 @@ func (pipeline *ImagePipeline) Process2DOtsu(params map[string]interface{}) (*Im
 	// Convert result back to image
 	resultImage, err := pipeline.matToImage(resultMat)
 	if err != nil {
-		resultMat.Close()
+		pipeline.memoryManager.ReleaseMat(resultMat)
 		return nil, fmt.Errorf("failed to convert result to image: %w", err)
 	}
 	pipeline.updateProgress(0.9)
 
 	// Clean up previous processed image
 	if pipeline.processedImage != nil {
-		pipeline.processedImage.Mat.Close()
+		pipeline.memoryManager.ReleaseMat(pipeline.processedImage.Mat)
 	}
 
 	// Store processed image with original format info
@@ -54,7 +56,7 @@ func (pipeline *ImagePipeline) Process2DOtsu(params map[string]interface{}) (*Im
 		Width:       bounds.Dx(),
 		Height:      bounds.Dy(),
 		Channels:    resultMat.Channels(),
-		Format:      pipeline.originalImage.Format, // Inherit format
+		Format:      pipeline.originalImage.Format,
 		OriginalURI: pipeline.originalImage.OriginalURI,
 	}
 
@@ -82,12 +84,14 @@ func (pipeline *ImagePipeline) ProcessIterativeTriclass(params map[string]interf
 	processStartTime := time.Now()
 	pipeline.updateProgress(0.1)
 
-	// Create processor
-	processor := otsu.NewIterativeTriclassProcessor(params)
+	// Create processor with memory manager
+	processor := otsu.NewIterativeTriclassProcessor(params, pipeline.memoryManager)
 	pipeline.updateProgress(0.3)
 
 	// Process image
 	srcMat := pipeline.originalImage.Mat.Clone()
+	defer pipeline.memoryManager.ReleaseMat(srcMat)
+
 	resultMat, err := processor.Process(srcMat)
 	if err != nil {
 		return nil, fmt.Errorf("processing failed: %w", err)
@@ -97,14 +101,14 @@ func (pipeline *ImagePipeline) ProcessIterativeTriclass(params map[string]interf
 	// Convert result back to image
 	resultImage, err := pipeline.matToImage(resultMat)
 	if err != nil {
-		resultMat.Close()
+		pipeline.memoryManager.ReleaseMat(resultMat)
 		return nil, fmt.Errorf("failed to convert result to image: %w", err)
 	}
 	pipeline.updateProgress(0.9)
 
 	// Clean up previous processed image
 	if pipeline.processedImage != nil {
-		pipeline.processedImage.Mat.Close()
+		pipeline.memoryManager.ReleaseMat(pipeline.processedImage.Mat)
 	}
 
 	// Store processed image with original format info
@@ -115,7 +119,7 @@ func (pipeline *ImagePipeline) ProcessIterativeTriclass(params map[string]interf
 		Width:       bounds.Dx(),
 		Height:      bounds.Dy(),
 		Channels:    resultMat.Channels(),
-		Format:      pipeline.originalImage.Format, // Inherit format
+		Format:      pipeline.originalImage.Format,
 		OriginalURI: pipeline.originalImage.OriginalURI,
 	}
 

@@ -8,11 +8,11 @@ import (
 
 // ControlsPanel handles algorithm selection, parameters, and generation
 type ControlsPanel struct {
-	container           *fyne.Container
-	algorithmRadio      *widget.RadioGroup
-	parameterPanel      *ParameterPanel
-	generateButton      *widget.Button
-	progressBar         *widget.ProgressBar
+	container      *fyne.Container
+	algorithmRadio *widget.RadioGroup
+	parameterPanel *ParameterPanel
+	generateButton *widget.Button
+	progressBar    *widget.ProgressBar
 
 	onAlgorithmChange func(string)
 	onParameterChange func(string, interface{})
@@ -38,7 +38,7 @@ func (cp *ControlsPanel) setupControls() {
 	// Algorithm selection
 	algorithmLabel := widget.NewLabel("Algorithm")
 	cp.algorithmRadio = widget.NewRadioGroup([]string{"2D Otsu", "Iterative Triclass"}, nil)
-	
+
 	algorithmContainer := container.NewVBox(
 		algorithmLabel,
 		cp.algorithmRadio,
@@ -62,7 +62,7 @@ func (cp *ControlsPanel) setupControls() {
 	// Create horizontal layout: Algorithm | Parameters | Generate
 	controlsLayout := container.NewHBox(
 		algorithmContainer,
-		widget.NewSeparator(), 
+		widget.NewSeparator(),
 		cp.parameterPanel.GetContainer(),
 		widget.NewSeparator(),
 		buttonContainer,
@@ -88,7 +88,9 @@ func (cp *ControlsPanel) onAlgorithmSelected(algorithm string) {
 }
 
 func (cp *ControlsPanel) UpdateParameters(algorithm string, params map[string]interface{}) {
-	cp.parameterPanel.UpdateParameters(algorithm, params)
+	fyne.Do(func() {
+		cp.parameterPanel.UpdateParameters(algorithm, params)
+	})
 }
 
 func (cp *ControlsPanel) UpdateProgress(progress float64) {

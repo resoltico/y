@@ -22,13 +22,10 @@ func (pipeline *ImagePipeline) matToImage(mat gocv.Mat) (image.Image, error) {
 		return nil, fmt.Errorf("Mat has invalid dimensions: %dx%d", cols, rows)
 	}
 
-	// Additional validation
 	if mat.Type() < 0 {
 		return nil, fmt.Errorf("Mat has invalid type: %d", mat.Type())
 	}
 
-	// Skip cloning and pixel access to avoid segfaults on corrupted Mats
-	// Log basic info without accessing pixel data
 	pipeline.debugManager.LogInfo("Conversion", fmt.Sprintf("Converting Mat to Image: %dx%d, %d channels, type %d",
 		cols, rows, channels, mat.Type()))
 
@@ -37,17 +34,14 @@ func (pipeline *ImagePipeline) matToImage(mat gocv.Mat) (image.Image, error) {
 
 	switch channels {
 	case 1:
-		// Grayscale
 		gray := image.NewGray(image.Rect(0, 0, cols, rows))
 		err = pipeline.copyMatToGray(mat, gray)
 		resultImage = gray
 	case 3:
-		// BGR to RGB
 		rgba := image.NewRGBA(image.Rect(0, 0, cols, rows))
 		err = pipeline.copyMatBGRToRGBA(mat, rgba)
 		resultImage = rgba
 	case 4:
-		// BGRA to RGBA
 		rgba := image.NewRGBA(image.Rect(0, 0, cols, rows))
 		err = pipeline.copyMatBGRAToRGBA(mat, rgba)
 		resultImage = rgba
@@ -59,7 +53,6 @@ func (pipeline *ImagePipeline) matToImage(mat gocv.Mat) (image.Image, error) {
 		return nil, err
 	}
 
-	// Debug Image after conversion - skip Mat debugging to avoid segfaults
 	pipeline.debugManager.LogPixelAnalysis("MatToImageOutput", resultImage)
 	pipeline.debugManager.LogInfo("Conversion", fmt.Sprintf("Conversion completed: %d-channel Mat to Image", channels))
 
@@ -67,7 +60,6 @@ func (pipeline *ImagePipeline) matToImage(mat gocv.Mat) (image.Image, error) {
 }
 
 func (pipeline *ImagePipeline) copyMatToGray(mat gocv.Mat, img *image.Gray) error {
-	// Validate inputs
 	if mat.Empty() {
 		return fmt.Errorf("source Mat is empty")
 	}
@@ -88,7 +80,6 @@ func (pipeline *ImagePipeline) copyMatToGray(mat gocv.Mat, img *image.Gray) erro
 		return fmt.Errorf("image size mismatch: Mat=%dx%d, Image=%dx%d", cols, rows, bounds.Dx(), bounds.Dy())
 	}
 
-	// Use recovery for any remaining memory access issues
 	defer func() {
 		if r := recover(); r != nil {
 			pipeline.debugManager.LogWarning("Conversion", fmt.Sprintf("Panic during Mat to Gray conversion: %v", r))
@@ -109,7 +100,6 @@ func (pipeline *ImagePipeline) copyMatToGray(mat gocv.Mat, img *image.Gray) erro
 }
 
 func (pipeline *ImagePipeline) copyMatBGRToRGBA(mat gocv.Mat, img *image.RGBA) error {
-	// Validate inputs
 	if mat.Empty() {
 		return fmt.Errorf("source Mat is empty")
 	}
@@ -130,7 +120,6 @@ func (pipeline *ImagePipeline) copyMatBGRToRGBA(mat gocv.Mat, img *image.RGBA) e
 		return fmt.Errorf("image size mismatch: Mat=%dx%d, Image=%dx%d", cols, rows, bounds.Dx(), bounds.Dy())
 	}
 
-	// Use recovery for any remaining memory access issues
 	defer func() {
 		if r := recover(); r != nil {
 			pipeline.debugManager.LogWarning("Conversion", fmt.Sprintf("Panic during Mat BGR to RGBA conversion: %v", r))
@@ -153,7 +142,6 @@ func (pipeline *ImagePipeline) copyMatBGRToRGBA(mat gocv.Mat, img *image.RGBA) e
 }
 
 func (pipeline *ImagePipeline) copyMatBGRAToRGBA(mat gocv.Mat, img *image.RGBA) error {
-	// Validate inputs
 	if mat.Empty() {
 		return fmt.Errorf("source Mat is empty")
 	}
@@ -174,7 +162,6 @@ func (pipeline *ImagePipeline) copyMatBGRAToRGBA(mat gocv.Mat, img *image.RGBA) 
 		return fmt.Errorf("image size mismatch: Mat=%dx%d, Image=%dx%d", cols, rows, bounds.Dx(), bounds.Dy())
 	}
 
-	// Use recovery for any remaining memory access issues
 	defer func() {
 		if r := recover(); r != nil {
 			pipeline.debugManager.LogWarning("Conversion", fmt.Sprintf("Panic during Mat BGRA to RGBA conversion: %v", r))

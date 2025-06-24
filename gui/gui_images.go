@@ -31,12 +31,12 @@ func NewImageDisplay() *ImageDisplay {
 
 func (id *ImageDisplay) setupImages() {
 	// Create image canvases with fixed sizes
-	id.originalImage = canvas.NewImageFromResource(nil)
+	id.originalImage = canvas.NewImageFromImage(nil)
 	id.originalImage.FillMode = canvas.ImageFillContain
 	id.originalImage.SetMinSize(fyne.NewSize(ImageDisplayWidth, ImageDisplayHeight))
 
-	id.previewImage = canvas.NewImageFromResource(nil)
-	id.previewImage.FillMode = canvas.ImageFillContain  
+	id.previewImage = canvas.NewImageFromImage(nil)
+	id.previewImage.FillMode = canvas.ImageFillContain
 	id.previewImage.SetMinSize(fyne.NewSize(ImageDisplayWidth, ImageDisplayHeight))
 
 	// Create containers with labels for each image
@@ -57,7 +57,7 @@ func (id *ImageDisplay) setupImages() {
 	// Wrap in container to enforce size constraints
 	id.container = container.NewBorder(
 		nil, nil, nil, nil, // no borders
-		imageSplit,         // center content
+		imageSplit, // center content
 	)
 }
 
@@ -87,7 +87,7 @@ func (id *ImageDisplay) SetOriginalImage(imageData interface{}) {
 		return
 	}
 
-	// Update the canvas image
+	// Update the canvas image using thread-safe Do
 	fyne.Do(func() {
 		id.originalImage.Image = img
 		id.originalImage.Refresh()
@@ -116,7 +116,7 @@ func (id *ImageDisplay) SetPreviewImage(imageData interface{}) {
 		return
 	}
 
-	// Update the canvas image
+	// Update the canvas image using thread-safe Do
 	fyne.Do(func() {
 		id.previewImage.Image = img
 		id.previewImage.Refresh()

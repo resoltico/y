@@ -3,9 +3,10 @@ package pipeline
 import (
 	"sync"
 
+	"image"
+
 	"fyne.io/fyne/v2"
 	"gocv.io/x/gocv"
-	"image"
 
 	"otsu-obliterator/debug"
 )
@@ -25,13 +26,15 @@ type ImagePipeline struct {
 	originalImage    *ImageData
 	processedImage   *ImageData
 	debugManager     *debug.Manager
+	memoryManager    *MemoryManager
 	progressCallback func(float64)
 	statusCallback   func(string)
 }
 
 func NewImagePipeline(debugManager *debug.Manager) *ImagePipeline {
 	return &ImagePipeline{
-		debugManager: debugManager,
+		debugManager:  debugManager,
+		memoryManager: NewMemoryManager(debugManager),
 	}
 }
 
@@ -49,13 +52,17 @@ func (pipeline *ImagePipeline) SetStatusCallback(callback func(string)) {
 
 func (pipeline *ImagePipeline) updateProgress(progress float64) {
 	if pipeline.progressCallback != nil {
-		pipeline.progressCallback(progress)
+		fyne.Do(func() {
+			pipeline.progressCallback(progress)
+		})
 	}
 }
 
 func (pipeline *ImagePipeline) updateStatus(status string) {
 	if pipeline.statusCallback != nil {
-		pipeline.statusCallback(status)
+		fyne.Do(func() {
+			pipeline.statusCallback(status)
+		})
 	}
 }
 
@@ -64,12 +71,14 @@ func (pipeline *ImagePipeline) Cleanup() {
 	defer pipeline.mu.Unlock()
 
 	if pipeline.originalImage != nil {
-		pipeline.originalImage.Mat.Close()
+		pipeline.memoryManager.ReleaseMat(pipeline.originalImage.Mat)
 		pipeline.originalImage = nil
 	}
 
 	if pipeline.processedImage != nil {
-		pipeline.processedImage.Mat.Close()
+		pipeline.memoryManager.ReleaseMat(pipeline.processedImage.Mat)
 		pipeline.processedImage = nil
 	}
+
+	pipeline.memoryManager.Cleanup()
 }

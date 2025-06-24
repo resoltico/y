@@ -8,21 +8,23 @@ import (
 )
 
 type TwoDOtsuProcessor struct {
-	params map[string]interface{}
+	params        map[string]interface{}
+	memoryManager MemoryManagerInterface
 }
 
-func NewTwoDOtsuProcessor(params map[string]interface{}) *TwoDOtsuProcessor {
+func NewTwoDOtsuProcessor(params map[string]interface{}, memoryManager MemoryManagerInterface) *TwoDOtsuProcessor {
 	return &TwoDOtsuProcessor{
-		params: params,
+		params:        params,
+		memoryManager: memoryManager,
 	}
 }
 
 func (processor *TwoDOtsuProcessor) Process(src gocv.Mat) (gocv.Mat, error) {
-	defer src.Close()
+	defer processor.memoryManager.ReleaseMat(src)
 
 	// Convert to grayscale if needed
-	gray := gocv.NewMat()
-	defer gray.Close()
+	gray := processor.memoryManager.GetMat(src.Rows(), src.Cols(), gocv.MatTypeCV8UC1)
+	defer processor.memoryManager.ReleaseMat(gray)
 
 	if src.Channels() == 3 {
 		gocv.CvtColor(src, &gray, gocv.ColorBGRToGray)
@@ -32,17 +34,17 @@ func (processor *TwoDOtsuProcessor) Process(src gocv.Mat) (gocv.Mat, error) {
 
 	// Apply contrast enhancement if requested
 	if processor.getBoolParam("apply_contrast_enhancement") {
-		enhanced := gocv.NewMat()
-		defer enhanced.Close()
+		enhanced := processor.memoryManager.GetMat(gray.Rows(), gray.Cols(), gocv.MatTypeCV8UC1)
+		defer processor.memoryManager.ReleaseMat(enhanced)
 
 		processor.applyCLAHE(&gray, &enhanced)
-		gray.Close()
+		processor.memoryManager.ReleaseMat(gray)
 		gray = enhanced.Clone()
 	}
 
 	// Calculate neighborhood averages
-	neighborhood := gocv.NewMat()
-	defer neighborhood.Close()
+	neighborhood := processor.memoryManager.GetMat(gray.Rows(), gray.Cols(), gocv.MatTypeCV8UC1)
+	defer processor.memoryManager.ReleaseMat(neighborhood)
 
 	err := processor.calculateNeighborhoodMean(&gray, &neighborhood)
 	if err != nil {
@@ -72,7 +74,7 @@ func (processor *TwoDOtsuProcessor) Process(src gocv.Mat) (gocv.Mat, error) {
 	threshold := processor.find2DOtsuThreshold(histogram)
 
 	// Apply threshold
-	result := gocv.NewMat()
+	result := processor.memoryManager.GetMat(gray.Rows(), gray.Cols(), gocv.MatTypeCV8UC1)
 	processor.applyThreshold(&gray, &neighborhood, &result, threshold)
 
 	return result, nil
@@ -267,7 +269,7 @@ func (processor *TwoDOtsuProcessor) find2DOtsuThreshold(histogram [][]float64) [
 		return bestThreshold
 	}
 
-	// Search for optimal threshold
+	// Search for threshold
 	for t1 := 1; t1 < histBins-1; t1++ {
 		for t2 := 1; t2 < histBins-1; t2++ {
 			// Calculate class statistics
@@ -313,8 +315,6 @@ func (processor *TwoDOtsuProcessor) find2DOtsuThreshold(histogram [][]float64) [
 func (processor *TwoDOtsuProcessor) applyThreshold(src, neighborhood, dst *gocv.Mat, threshold [2]int) {
 	histBins := processor.getIntParam("histogram_bins")
 	pixelWeightFactor := processor.getFloatParam("pixel_weight_factor")
-
-	*dst = gocv.NewMatWithSize(src.Rows(), src.Cols(), gocv.MatTypeCV8UC1)
 
 	rows := src.Rows()
 	cols := src.Cols()

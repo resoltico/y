@@ -44,12 +44,16 @@ func (sb *StatusBar) setupStatusBar() {
 }
 
 func (sb *StatusBar) SetStatus(status string) {
-	sb.statusLabel.SetText(status)
+	fyne.Do(func() {
+		sb.statusLabel.SetText(status)
+	})
 }
 
 func (sb *StatusBar) SetMetrics(psnr, ssim string) {
-	sb.psnrLabel.SetText(psnr)
-	sb.ssimLabel.SetText(ssim)
+	fyne.Do(func() {
+		sb.psnrLabel.SetText(psnr)
+		sb.ssimLabel.SetText(ssim)
+	})
 }
 
 func (sb *StatusBar) GetContainer() *fyne.Container {

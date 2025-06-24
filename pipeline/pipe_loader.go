@@ -23,7 +23,7 @@ func (pipeline *ImagePipeline) LoadImage(reader fyne.URIReadCloser) error {
 	loadStartTime := time.Now()
 	processingSteps := []string{}
 
-	// Extract comprehensive URI information
+	// Extract URI information
 	originalURI := reader.URI()
 	uriExtension := strings.ToLower(originalURI.Extension())
 	uriScheme := originalURI.Scheme()
@@ -66,7 +66,7 @@ func (pipeline *ImagePipeline) LoadImage(reader fyne.URIReadCloser) error {
 
 	pipeline.updateProgress(0.4)
 
-	// Convert to OpenCV Mat using IMDecode for more reliable format handling
+	// Convert to OpenCV Mat using IMDecode
 	mat, err := gocv.IMDecode(data, gocv.IMReadColor)
 	openCVSuccess := err == nil
 	openCVError := ""
@@ -90,7 +90,7 @@ func (pipeline *ImagePipeline) LoadImage(reader fyne.URIReadCloser) error {
 	actualFormat := pipeline.determineActualFormat(uriExtension, standardLibFormat)
 	processingSteps = append(processingSteps, fmt.Sprintf("Final format determined: %s", actualFormat))
 
-	// Comprehensive format detection logging
+	// Log format detection
 	formatDetection := &debug.FormatDetection{
 		URI:               originalURI,
 		URIScheme:         uriScheme,
@@ -122,7 +122,7 @@ func (pipeline *ImagePipeline) LoadImage(reader fyne.URIReadCloser) error {
 
 	// Clean up previous image
 	if pipeline.originalImage != nil {
-		pipeline.originalImage.Mat.Close()
+		pipeline.memoryManager.ReleaseMat(pipeline.originalImage.Mat)
 	}
 
 	// Store image data
@@ -139,7 +139,7 @@ func (pipeline *ImagePipeline) LoadImage(reader fyne.URIReadCloser) error {
 
 	pipeline.updateProgress(1.0)
 
-	// Log detailed debug information
+	// Log debug information
 	debugInfo := &debug.ImageDebugInfo{
 		OriginalURI:      originalURI,
 		ExtensionFromURI: uriExtension,

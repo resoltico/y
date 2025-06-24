@@ -3,7 +3,6 @@ package otsu
 import (
 	"fmt"
 	"image"
-	"math"
 
 	"gocv.io/x/gocv"
 
@@ -11,14 +10,25 @@ import (
 )
 
 type IterativeTriclassProcessor struct {
-	params       map[string]interface{}
-	debugManager *debug.Manager
+	params        map[string]interface{}
+	debugManager  *debug.Manager
+	memoryManager MemoryManagerInterface
+	segmenter     *TriclassSegmenter
+	thresholder   *TriclassThresholder
 }
 
-func NewIterativeTriclassProcessor(params map[string]interface{}) *IterativeTriclassProcessor {
+type MemoryManagerInterface interface {
+	GetMat(rows, cols int, matType gocv.MatType) gocv.Mat
+	ReleaseMat(mat gocv.Mat)
+}
+
+func NewIterativeTriclassProcessor(params map[string]interface{}, memoryManager MemoryManagerInterface) *IterativeTriclassProcessor {
 	return &IterativeTriclassProcessor{
-		params:       params,
-		debugManager: debug.NewManager(),
+		params:        params,
+		debugManager:  debug.NewManager(),
+		memoryManager: memoryManager,
+		segmenter:     NewTriclassSegmenter(params, memoryManager),
+		thresholder:   NewTriclassThresholder(params),
 	}
 }
 
@@ -34,7 +44,7 @@ func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, er
 
 	// Create a safe working copy immediately to avoid memory issues
 	safeCopy := src.Clone()
-	defer safeCopy.Close()
+	defer processor.memoryManager.ReleaseMat(safeCopy)
 
 	if safeCopy.Empty() {
 		return gocv.NewMat(), fmt.Errorf("failed to create safe copy of input Mat")
@@ -45,8 +55,8 @@ func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, er
 	processor.debugManager.LogMatPixelAnalysis("TriclassInput", safeCopy)
 
 	// Convert to grayscale if needed
-	gray := gocv.NewMat()
-	defer gray.Close()
+	gray := processor.memoryManager.GetMat(safeCopy.Rows(), safeCopy.Cols(), gocv.MatTypeCV8UC1)
+	defer processor.memoryManager.ReleaseMat(gray)
 
 	if safeCopy.Channels() == 3 {
 		gocv.CvtColor(safeCopy, &gray, gocv.ColorBGRToGray)
@@ -61,8 +71,8 @@ func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, er
 	processor.debugManager.LogMatPixelAnalysis("TriclassGrayscale", gray)
 
 	// Apply preprocessing if requested
-	working := gocv.NewMat()
-	defer working.Close()
+	working := processor.memoryManager.GetMat(gray.Rows(), gray.Cols(), gocv.MatTypeCV8UC1)
+	defer processor.memoryManager.ReleaseMat(working)
 
 	if processor.getBoolParam("apply_preprocessing") {
 		processor.applyPreprocessing(&gray, &working)
@@ -82,8 +92,8 @@ func (processor *IterativeTriclassProcessor) Process(src gocv.Mat) (gocv.Mat, er
 
 	// Apply cleanup if requested
 	if processor.getBoolParam("apply_cleanup") {
-		cleaned := gocv.NewMat()
-		defer result.Close()
+		cleaned := processor.memoryManager.GetMat(result.Rows(), result.Cols(), gocv.MatTypeCV8UC1)
+		processor.memoryManager.ReleaseMat(result)
 		processor.applyCleanup(&result, &cleaned)
 		if cleaned.Empty() {
 			return gocv.NewMat(), fmt.Errorf("cleanup failed")
@@ -102,12 +112,16 @@ func (processor *IterativeTriclassProcessor) performIterativeTriclass(working *g
 	minTBDFraction := processor.getFloatParam("minimum_tbd_fraction")
 
 	// Initialize final result
-	result := gocv.NewMatWithSize(working.Rows(), working.Cols(), gocv.MatTypeCV8UC1)
+	result := processor.memoryManager.GetMat(working.Rows(), working.Cols(), gocv.MatTypeCV8UC1)
 	result.SetTo(gocv.NewScalar(0, 0, 0, 0)) // Start with all background
 
 	// Current working region
-	currentRegion := gocv.NewMat()
-	defer currentRegion.Close()
+	currentRegion := processor.memoryManager.GetMat(working.Rows(), working.Cols(), gocv.MatTypeCV8UC1)
+	defer processor.memoryManager.ReleaseMat(currentRegion)
+
+	if working.Empty() || currentRegion.Empty() {
+		return gocv.NewMat(), fmt.Errorf("invalid Mat for CopyTo operation")
+	}
 	working.CopyTo(&currentRegion)
 
 	var previousThreshold float64 = -1
@@ -123,11 +137,11 @@ func (processor *IterativeTriclassProcessor) performIterativeTriclass(working *g
 		}
 
 		// Calculate threshold for current region
-		threshold := processor.calculateThresholdForRegion(&currentRegion)
+		threshold := processor.thresholder.CalculateThresholdForRegion(&currentRegion)
 		iterationThresholds = append(iterationThresholds, threshold)
 
 		// Check convergence
-		convergence := math.Abs(threshold - previousThreshold)
+		convergence := abs(threshold - previousThreshold)
 		iterationConvergence = append(iterationConvergence, convergence)
 
 		if previousThreshold >= 0 && convergence < convergenceEpsilon {
@@ -137,7 +151,7 @@ func (processor *IterativeTriclassProcessor) performIterativeTriclass(working *g
 		previousThreshold = threshold
 
 		// Segment current region into three classes
-		foregroundMask, backgroundMask, tbdMask := processor.segmentRegion(&currentRegion, threshold)
+		foregroundMask, backgroundMask, tbdMask := processor.segmenter.SegmentRegion(&currentRegion, threshold)
 
 		// Count pixels in each class
 		foregroundCount := gocv.CountNonZero(foregroundMask)
@@ -155,21 +169,21 @@ func (processor *IterativeTriclassProcessor) performIterativeTriclass(working *g
 		tbdFraction := float64(tbdCount) / float64(totalPixels)
 
 		if tbdFraction < minTBDFraction {
-			foregroundMask.Close()
-			backgroundMask.Close()
-			tbdMask.Close()
+			processor.memoryManager.ReleaseMat(foregroundMask)
+			processor.memoryManager.ReleaseMat(backgroundMask)
+			processor.memoryManager.ReleaseMat(tbdMask)
 			break
 		}
 
 		// Update current region to only include TBD pixels
-		newRegion := gocv.NewMat()
+		newRegion := processor.memoryManager.GetMat(working.Rows(), working.Cols(), gocv.MatTypeCV8UC1)
 		processor.extractTBDRegion(working, &tbdMask, &newRegion)
-		currentRegion.Close()
+		processor.memoryManager.ReleaseMat(currentRegion)
 		currentRegion = newRegion
 
-		foregroundMask.Close()
-		backgroundMask.Close()
-		tbdMask.Close()
+		processor.memoryManager.ReleaseMat(foregroundMask)
+		processor.memoryManager.ReleaseMat(backgroundMask)
+		processor.memoryManager.ReleaseMat(tbdMask)
 	}
 
 	// Log debug information
@@ -189,7 +203,7 @@ func (processor *IterativeTriclassProcessor) performIterativeTriclass(working *g
 		TotalPixels:          totalPixels,
 		ForegroundPixels:     foregroundPixels,
 		BackgroundPixels:     backgroundPixels,
-		TBDPixels:            0, // Final result has no TBD pixels
+		TBDPixels:            0,
 		ProcessingSteps:      []string{"grayscale", "preprocessing", "iterative_segmentation", "final_result"},
 		IterationThresholds:  iterationThresholds,
 		IterationConvergence: iterationConvergence,
@@ -198,182 +212,6 @@ func (processor *IterativeTriclassProcessor) performIterativeTriclass(working *g
 	processor.debugManager.LogTriclassResult(debugInfo)
 
 	return result, nil
-}
-
-func (processor *IterativeTriclassProcessor) calculateThresholdForRegion(region *gocv.Mat) float64 {
-	// Build histogram for the region
-	histogram := processor.calculateHistogram(region)
-
-	method := processor.getStringParam("initial_threshold_method")
-	switch method {
-	case "mean":
-		return processor.calculateMeanThreshold(histogram)
-	case "median":
-		return processor.calculateMedianThreshold(histogram)
-	default: // "otsu"
-		return processor.calculateOtsuThreshold(histogram)
-	}
-}
-
-func (processor *IterativeTriclassProcessor) calculateHistogram(src *gocv.Mat) []int {
-	histBins := processor.getIntParam("histogram_bins")
-	histogram := make([]int, histBins)
-
-	rows := src.Rows()
-	cols := src.Cols()
-
-	for y := 0; y < rows; y++ {
-		for x := 0; x < cols; x++ {
-			pixelValue := src.GetUCharAt(y, x)
-
-			// Only include non-zero pixels (active region)
-			if pixelValue > 0 {
-				bin := int(float64(pixelValue) * float64(histBins-1) / 255.0)
-				if bin < 0 {
-					bin = 0
-				} else if bin >= histBins {
-					bin = histBins - 1
-				}
-				histogram[bin]++
-			}
-		}
-	}
-
-	return histogram
-}
-
-func (processor *IterativeTriclassProcessor) calculateOtsuThreshold(histogram []int) float64 {
-	histBins := len(histogram)
-	total := 0
-
-	// Calculate total pixel count
-	for i := 0; i < histBins; i++ {
-		total += histogram[i]
-	}
-
-	if total == 0 {
-		return 127.5 // Default middle value
-	}
-
-	// Calculate cumulative sum and weighted sum
-	sum := 0.0
-	for i := 0; i < histBins; i++ {
-		sum += float64(i) * float64(histogram[i])
-	}
-
-	sumB := 0.0
-	wB := 0
-	maxVariance := 0.0
-	bestThreshold := 127.5
-
-	for t := 0; t < histBins; t++ {
-		wB += histogram[t]
-		if wB == 0 {
-			continue
-		}
-
-		wF := total - wB
-		if wF == 0 {
-			break
-		}
-
-		sumB += float64(t) * float64(histogram[t])
-
-		mB := sumB / float64(wB)
-		mF := (sum - sumB) / float64(wF)
-
-		// Between-class variance
-		varBetween := float64(wB) * float64(wF) * (mB - mF) * (mB - mF)
-
-		if varBetween > maxVariance {
-			maxVariance = varBetween
-			bestThreshold = float64(t) * 255.0 / float64(histBins-1)
-		}
-	}
-
-	return bestThreshold
-}
-
-func (processor *IterativeTriclassProcessor) calculateMeanThreshold(histogram []int) float64 {
-	histBins := len(histogram)
-	totalPixels := 0
-	weightedSum := 0.0
-
-	for i := 0; i < histBins; i++ {
-		totalPixels += histogram[i]
-		weightedSum += float64(i) * float64(histogram[i])
-	}
-
-	if totalPixels == 0 {
-		return 127.5
-	}
-
-	meanBin := weightedSum / float64(totalPixels)
-	return meanBin * 255.0 / float64(histBins-1)
-}
-
-func (processor *IterativeTriclassProcessor) calculateMedianThreshold(histogram []int) float64 {
-	histBins := len(histogram)
-	totalPixels := 0
-
-	for i := 0; i < histBins; i++ {
-		totalPixels += histogram[i]
-	}
-
-	if totalPixels == 0 {
-		return 127.5
-	}
-
-	halfPixels := totalPixels / 2
-	cumSum := 0
-
-	for i := 0; i < histBins; i++ {
-		cumSum += histogram[i]
-		if cumSum >= halfPixels {
-			return float64(i) * 255.0 / float64(histBins-1)
-		}
-	}
-
-	return 127.5
-}
-
-func (processor *IterativeTriclassProcessor) segmentRegion(region *gocv.Mat, threshold float64) (gocv.Mat, gocv.Mat, gocv.Mat) {
-	rows := region.Rows()
-	cols := region.Cols()
-
-	foreground := gocv.NewMatWithSize(rows, cols, gocv.MatTypeCV8UC1)
-	background := gocv.NewMatWithSize(rows, cols, gocv.MatTypeCV8UC1)
-	tbd := gocv.NewMatWithSize(rows, cols, gocv.MatTypeCV8UC1)
-
-	// Initialize all masks to 0
-	foreground.SetTo(gocv.NewScalar(0, 0, 0, 0))
-	background.SetTo(gocv.NewScalar(0, 0, 0, 0))
-	tbd.SetTo(gocv.NewScalar(0, 0, 0, 0))
-
-	gapFactor := processor.getFloatParam("lower_upper_gap_factor")
-
-	// Create adaptive thresholds
-	lowerThreshold := threshold * (1.0 - gapFactor)
-	upperThreshold := threshold * (1.0 + gapFactor)
-
-	for y := 0; y < rows; y++ {
-		for x := 0; x < cols; x++ {
-			pixelValue := float64(region.GetUCharAt(y, x))
-
-			// Only process active pixels
-			if pixelValue > 0 {
-				if pixelValue > upperThreshold {
-					foreground.SetUCharAt(y, x, 255)
-				} else if pixelValue < lowerThreshold {
-					background.SetUCharAt(y, x, 255)
-				} else {
-					tbd.SetUCharAt(y, x, 255)
-				}
-			}
-		}
-	}
-
-	return foreground, background, tbd
 }
 
 func (processor *IterativeTriclassProcessor) updateResult(result, foregroundMask, backgroundMask *gocv.Mat) {
@@ -385,17 +223,23 @@ func (processor *IterativeTriclassProcessor) updateResult(result, foregroundMask
 			if foregroundMask.GetUCharAt(y, x) > 0 {
 				result.SetUCharAt(y, x, 255)
 			}
-			// Background pixels remain 0 (already initialized)
 		}
 	}
 }
 
 func (processor *IterativeTriclassProcessor) extractTBDRegion(original, tbdMask, result *gocv.Mat) {
-	*result = gocv.NewMatWithSize(original.Rows(), original.Cols(), gocv.MatTypeCV8UC1)
+	if original.Empty() || tbdMask.Empty() || result.Empty() {
+		return
+	}
+
 	result.SetTo(gocv.NewScalar(0, 0, 0, 0))
 
 	rows := original.Rows()
 	cols := original.Cols()
+
+	if rows != tbdMask.Rows() || cols != tbdMask.Cols() {
+		return
+	}
 
 	for y := 0; y < rows; y++ {
 		for x := 0; x < cols; x++ {
@@ -414,8 +258,8 @@ func (processor *IterativeTriclassProcessor) applyPreprocessing(src, dst *gocv.M
 	clahe.Apply(*src, dst)
 
 	// Apply denoising
-	denoised := gocv.NewMat()
-	defer denoised.Close()
+	denoised := processor.memoryManager.GetMat(dst.Rows(), dst.Cols(), gocv.MatTypeCV8UC1)
+	defer processor.memoryManager.ReleaseMat(denoised)
 
 	gocv.FastNlMeansDenoising(*dst, &denoised)
 	denoised.CopyTo(dst)
@@ -427,16 +271,16 @@ func (processor *IterativeTriclassProcessor) applyCleanup(src, dst *gocv.Mat) {
 	defer kernel.Close()
 
 	// Opening to remove small noise
-	opened := gocv.NewMat()
-	defer opened.Close()
+	opened := processor.memoryManager.GetMat(src.Rows(), src.Cols(), gocv.MatTypeCV8UC1)
+	defer processor.memoryManager.ReleaseMat(opened)
 	gocv.MorphologyEx(*src, &opened, gocv.MorphOpen, kernel)
 
 	// Closing to fill small holes
 	gocv.MorphologyEx(opened, dst, gocv.MorphClose, kernel)
 
 	// Apply median filter to smooth boundaries
-	medianFiltered := gocv.NewMat()
-	defer medianFiltered.Close()
+	medianFiltered := processor.memoryManager.GetMat(dst.Rows(), dst.Cols(), gocv.MatTypeCV8UC1)
+	defer processor.memoryManager.ReleaseMat(medianFiltered)
 	gocv.MedianBlur(*dst, &medianFiltered, 3)
 	medianFiltered.CopyTo(dst)
 }
@@ -462,9 +306,9 @@ func (processor *IterativeTriclassProcessor) getBoolParam(name string) bool {
 	return false
 }
 
-func (processor *IterativeTriclassProcessor) getStringParam(name string) string {
-	if value, ok := processor.params[name].(string); ok {
-		return value
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
 	}
-	return ""
+	return x
 }
