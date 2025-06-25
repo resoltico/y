@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	LeftPanelWidth  = 280
-	RightPanelWidth = 320
+	LeftPanelMinWidth  = 280
+	RightPanelMinWidth = 320
 )
 
 type Manager struct {
@@ -22,13 +22,11 @@ type Manager struct {
 	logger     debug.Logger
 	isShutdown bool
 
-	// Components
 	imageDisplay    *components.ImageDisplay
 	controlsPanel   *components.ControlsPanel
 	parametersPanel *components.ParametersPanel
 	statusBar       *components.StatusBar
 
-	// Event handlers
 	imageLoadHandler       func()
 	imageSaveHandler       func()
 	algorithmChangeHandler func(string)
@@ -55,20 +53,19 @@ func NewManager(window fyne.Window, debugCoord debug.Coordinator) (*Manager, err
 		statusBar:       statusBar,
 	}
 
-	manager.setupInitialState()
+	manager.setupInitialParameters()
 
-	logger.Info("GUIManager", "initialized with constrained image display", map[string]interface{}{
-		"left_width":   LeftPanelWidth,
-		"right_width":  RightPanelWidth,
-		"image_width":  components.ImageConstraintWidth,
-		"image_height": components.ImageConstraintHeight,
+	logger.Info("GUIManager", "initialized with BorderLayout", map[string]interface{}{
+		"left_panel_width":  LeftPanelMinWidth,
+		"right_panel_width": RightPanelMinWidth,
+		"min_image_width":   components.MinImageWidth,
+		"min_image_height":  components.MinImageHeight,
 	})
 
 	return manager, nil
 }
 
-func (m *Manager) setupInitialState() {
-	// Initialize with 2D Otsu algorithm pre-selected
+func (m *Manager) setupInitialParameters() {
 	defaultParams := map[string]interface{}{
 		"quality":                    "Fast",
 		"window_size":                7,
@@ -83,35 +80,30 @@ func (m *Manager) setupInitialState() {
 
 	m.parametersPanel.UpdateParameters("2D Otsu", defaultParams)
 
-	m.logger.Debug("GUIManager", "initial state configured", map[string]interface{}{
-		"algorithm": "2D Otsu",
-		"params":    len(defaultParams),
+	m.logger.Debug("GUIManager", "initial parameters configured", map[string]interface{}{
+		"algorithm":   "2D Otsu",
+		"param_count": len(defaultParams),
 	})
 }
 
 func (m *Manager) GetMainContainer() *fyne.Container {
-	// Create left panel with width constraint
 	leftPanel := container.NewVBox(m.controlsPanel.GetContainer())
-
-	// Create right panel with width constraint
 	rightPanel := container.NewVBox(m.parametersPanel.GetContainer())
-
-	// Get center panel (constrained image display)
 	centerPanel := m.imageDisplay.GetContainer()
 
-	// Use BorderLayout for layout management
 	mainContent := container.NewBorder(
-		nil, nil,
+		nil,
+		nil,
 		leftPanel,
 		rightPanel,
 		centerPanel,
 	)
 
-	// Add status bar at bottom
 	return container.NewBorder(
 		nil,
 		m.statusBar.GetContainer(),
-		nil, nil,
+		nil,
+		nil,
 		mainContent,
 	)
 }

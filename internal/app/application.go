@@ -5,6 +5,7 @@ import (
 
 	"otsu-obliterator/internal/debug"
 	"otsu-obliterator/internal/gui"
+	"otsu-obliterator/internal/gui/components"
 	"otsu-obliterator/internal/opencv/memory"
 	"otsu-obliterator/internal/pipeline"
 
@@ -13,14 +14,9 @@ import (
 )
 
 const (
-	AppName         = "Otsu Obliterator"
-	AppID           = "com.imageprocessing.otsuobliterator"
-	AppVersion      = "1.0.0"
-	LeftPanelWidth  = 280
-	RightPanelWidth = 320
-	StatusBarHeight = 40
-	MinWindowWidth  = 800
-	MinWindowHeight = 600
+	AppName    = "Otsu Obliterator"
+	AppID      = "com.imageprocessing.otsuobliterator"
+	AppVersion = "1.0.0"
 )
 
 type Application struct {
@@ -37,19 +33,13 @@ func NewApplication() (*Application, error) {
 	fyneApp := app.NewWithID(AppID)
 	window := fyneApp.NewWindow(AppName)
 
-	// Calculate window size based on constrained image areas
-	imageRequiredSize := calculateImageDisplaySize()
-	windowWidth := imageRequiredSize.Width + LeftPanelWidth + RightPanelWidth
-	windowHeight := imageRequiredSize.Height + StatusBarHeight
-
-	// Set window configuration
-	window.Resize(fyne.NewSize(windowWidth, windowHeight))
+	windowSize := calculateMinimumWindowSize()
+	window.Resize(windowSize)
 	window.SetFixedSize(false)
 	window.SetPadded(false)
 	window.CenterOnScreen()
 	window.SetMaster()
 
-	// Initialize debug system
 	debugConfig := getDebugConfig()
 	debugCoord := debug.NewCoordinator(debugConfig)
 
@@ -58,8 +48,8 @@ func NewApplication() (*Application, error) {
 
 	logger.Info("Application", "starting application", map[string]interface{}{
 		"version":       AppVersion,
-		"window_width":  windowWidth,
-		"window_height": windowHeight,
+		"window_width":  windowSize.Width,
+		"window_height": windowSize.Height,
 		"debug_enabled": debugConfig.EnableLogging,
 	})
 
@@ -91,15 +81,16 @@ func NewApplication() (*Application, error) {
 	return application, nil
 }
 
-func calculateImageDisplaySize() fyne.Size {
-	// Each constrained image is 640x480, dual-pane requires 1280x480 plus labels/padding
-	imageWidth := float32(640 * 2)
-	imageHeight := float32(480)
-	labelPadding := float32(60) // Space for labels and padding
+func calculateMinimumWindowSize() fyne.Size {
+	imageDisplaySize := components.MinImageWidth*2 + 40
+	panelWidth := gui.LeftPanelMinWidth + gui.RightPanelMinWidth
+
+	minimumWidth := float32(imageDisplaySize + panelWidth + 40)
+	minimumHeight := float32(components.MinImageHeight + 120)
 
 	return fyne.Size{
-		Width:  imageWidth,
-		Height: imageHeight + labelPadding,
+		Width:  minimumWidth,
+		Height: minimumHeight,
 	}
 }
 
@@ -134,7 +125,6 @@ func (a *Application) Run() error {
 }
 
 func getDebugConfig() debug.Config {
-	// Check environment variables for debug configuration
 	if os.Getenv("OTSU_DEBUG_ALL") == "true" {
 		return debug.DefaultConfig()
 	}
@@ -143,10 +133,8 @@ func getDebugConfig() debug.Config {
 		return debug.ProductionConfig()
 	}
 
-	// Default development configuration
 	config := debug.DefaultConfig()
 
-	// Override specific settings based on environment
 	if os.Getenv("OTSU_DEBUG_MEMORY") == "true" {
 		config.EnableMemoryTracking = true
 		config.EnableStackTraces = true

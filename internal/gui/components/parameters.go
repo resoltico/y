@@ -22,10 +22,7 @@ func NewParametersPanel() *ParametersPanel {
 }
 
 func (pp *ParametersPanel) setupPanel() {
-	// Quality section at top (leftmost column)
 	pp.qualitySection = container.NewVBox()
-
-	// Parameters section below quality
 	pp.parametersSection = container.NewVBox()
 
 	pp.container = container.NewVBox(
@@ -46,7 +43,6 @@ func (pp *ParametersPanel) UpdateParameters(algorithm string, params map[string]
 	pp.qualitySection.RemoveAll()
 	pp.parametersSection.RemoveAll()
 
-	// Quality radio buttons - always first
 	qualityRadio := widget.NewRadioGroup([]string{"Fast", "Best"}, func(value string) {
 		if pp.onParameterChange != nil {
 			pp.onParameterChange("quality", value)
@@ -66,7 +62,6 @@ func (pp *ParametersPanel) UpdateParameters(algorithm string, params map[string]
 }
 
 func (pp *ParametersPanel) create2DOtsuParameters(params map[string]interface{}) {
-	// Window Size
 	windowSize := pp.getIntParam(params, "window_size", 7)
 	windowSizeSlider := widget.NewSlider(3, 21)
 	windowSizeSlider.Step = 2
@@ -83,7 +78,6 @@ func (pp *ParametersPanel) create2DOtsuParameters(params map[string]interface{})
 		}
 	}
 
-	// Histogram Bins
 	histBins := pp.getIntParam(params, "histogram_bins", 64)
 	histBinsSlider := widget.NewSlider(16, 256)
 	histBinsSlider.SetValue(float64(histBins))
@@ -96,7 +90,6 @@ func (pp *ParametersPanel) create2DOtsuParameters(params map[string]interface{})
 		}
 	}
 
-	// Neighbourhood Metric
 	neighMetric := widget.NewSelect([]string{"mean", "median", "gaussian"}, func(value string) {
 		if pp.onParameterChange != nil {
 			pp.onParameterChange("neighbourhood_metric", value)
@@ -104,7 +97,6 @@ func (pp *ParametersPanel) create2DOtsuParameters(params map[string]interface{})
 	})
 	neighMetric.SetSelected(pp.getStringParam(params, "neighbourhood_metric", "mean"))
 
-	// Pixel Weight Factor
 	pixelWeight := pp.getFloatParam(params, "pixel_weight_factor", 0.5)
 	pixelWeightSlider := widget.NewSlider(0.0, 1.0)
 	pixelWeightSlider.SetValue(pixelWeight)
@@ -132,7 +124,6 @@ func (pp *ParametersPanel) create2DOtsuParameters(params map[string]interface{})
 }
 
 func (pp *ParametersPanel) createIterativeTriclassParameters(params map[string]interface{}) {
-	// Initial Threshold Method
 	initialMethod := widget.NewSelect([]string{"otsu", "mean", "median"}, func(value string) {
 		if pp.onParameterChange != nil {
 			pp.onParameterChange("initial_threshold_method", value)
@@ -140,7 +131,6 @@ func (pp *ParametersPanel) createIterativeTriclassParameters(params map[string]i
 	})
 	initialMethod.SetSelected(pp.getStringParam(params, "initial_threshold_method", "otsu"))
 
-	// Convergence Epsilon
 	convEpsilon := pp.getFloatParam(params, "convergence_epsilon", 1.0)
 	convEpsilonSlider := widget.NewSlider(0.1, 10.0)
 	convEpsilonSlider.SetValue(convEpsilon)
@@ -152,7 +142,6 @@ func (pp *ParametersPanel) createIterativeTriclassParameters(params map[string]i
 		}
 	}
 
-	// Max Iterations
 	maxIter := pp.getIntParam(params, "max_iterations", 10)
 	maxIterSlider := widget.NewSlider(1, 20)
 	maxIterSlider.SetValue(float64(maxIter))

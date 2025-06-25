@@ -10,40 +10,36 @@ import (
 )
 
 const (
-	ImageConstraintWidth  = 640
-	ImageConstraintHeight = 480
-	MinViewportWidth      = 400
-	MinViewportHeight     = 300
+	MinImageWidth  = 640
+	MinImageHeight = 480
 )
 
 type ImageDisplay struct {
-	container      *fyne.Container
+	container      fyne.CanvasObject
 	originalImage  *canvas.Image
 	previewImage   *canvas.Image
 	originalScroll *container.Scroll
 	previewScroll  *container.Scroll
+	splitContainer *container.Split
 }
 
 func NewImageDisplay() *ImageDisplay {
-	// Create constrained image displays
 	originalImage := canvas.NewImageFromImage(nil)
 	originalImage.FillMode = canvas.ImageFillContain
 	originalImage.ScaleMode = canvas.ImageScaleSmooth
-	originalImage.SetMinSize(fyne.NewSize(ImageConstraintWidth, ImageConstraintHeight))
+	originalImage.SetMinSize(fyne.NewSize(MinImageWidth, MinImageHeight))
 
 	previewImage := canvas.NewImageFromImage(nil)
 	previewImage.FillMode = canvas.ImageFillContain
 	previewImage.ScaleMode = canvas.ImageScaleSmooth
-	previewImage.SetMinSize(fyne.NewSize(ImageConstraintWidth, ImageConstraintHeight))
+	previewImage.SetMinSize(fyne.NewSize(MinImageWidth, MinImageHeight))
 
-	// Create scrollable containers for each image
 	originalScroll := container.NewScroll(originalImage)
-	originalScroll.SetMinSize(fyne.NewSize(MinViewportWidth, MinViewportHeight))
+	originalScroll.SetMinSize(fyne.NewSize(MinImageWidth, MinImageHeight))
 
 	previewScroll := container.NewScroll(previewImage)
-	previewScroll.SetMinSize(fyne.NewSize(MinViewportWidth, MinViewportHeight))
+	previewScroll.SetMinSize(fyne.NewSize(MinImageWidth, MinImageHeight))
 
-	// Create labeled containers
 	originalContainer := container.NewVBox(
 		widget.NewRichTextFromMarkdown("**Original**"),
 		originalScroll,
@@ -54,25 +50,21 @@ func NewImageDisplay() *ImageDisplay {
 		previewScroll,
 	)
 
-	// Create horizontal split layout for dual-pane display
 	splitContainer := container.NewHSplit(originalContainer, previewContainer)
-	splitContainer.SetOffset(0.5) // Equal split
-
-	// Wrap split container in a regular container
-	mainContainer := container.NewWithoutLayout(splitContainer)
-	mainContainer.Add(splitContainer)
-	splitContainer.Resize(fyne.NewSize(ImageConstraintWidth*2, ImageConstraintHeight+60))
+	splitContainer.SetOffset(0.5)
+	splitContainer.Resize(fyne.NewSize(MinImageWidth*2, MinImageHeight+60))
 
 	return &ImageDisplay{
-		container:      mainContainer,
+		container:      splitContainer,
 		originalImage:  originalImage,
 		previewImage:   previewImage,
 		originalScroll: originalScroll,
 		previewScroll:  previewScroll,
+		splitContainer: splitContainer,
 	}
 }
 
-func (id *ImageDisplay) GetContainer() *fyne.Container {
+func (id *ImageDisplay) GetContainer() fyne.CanvasObject {
 	return id.container
 }
 
@@ -98,18 +90,12 @@ func (id *ImageDisplay) SetPreviewImage(img image.Image) {
 	id.previewImage.Refresh()
 }
 
-func (id *ImageDisplay) GetRequiredWindowSize(leftPanelWidth, rightPanelWidth float32) fyne.Size {
-	// Calculate total window size needed for 640x480 image areas
-	totalImageWidth := float32(ImageConstraintWidth * 2)
-	totalPanelWidth := leftPanelWidth + rightPanelWidth
-	totalImageHeight := float32(ImageConstraintHeight)
-
-	// Add space for labels and padding
+func (id *ImageDisplay) GetMinimumSize() fyne.Size {
 	labelHeight := float32(30)
 	padding := float32(20)
 
 	return fyne.Size{
-		Width:  totalImageWidth + totalPanelWidth + padding,
-		Height: totalImageHeight + labelHeight + padding,
+		Width:  MinImageWidth*2 + padding,
+		Height: MinImageHeight + labelHeight + padding,
 	}
 }

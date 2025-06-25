@@ -24,7 +24,6 @@ func NewControlsPanel() *ControlsPanel {
 }
 
 func (cp *ControlsPanel) setupControls() {
-	// File operations
 	loadButton := widget.NewButton("Load Image", cp.onImageLoad)
 	saveButton := widget.NewButton("Save Image", cp.onImageSave)
 
@@ -33,13 +32,11 @@ func (cp *ControlsPanel) setupControls() {
 		saveButton,
 	))
 
-	// Algorithm selection
 	cp.algorithmRadio = widget.NewRadioGroup([]string{"2D Otsu", "Iterative Triclass"}, cp.onAlgorithmSelected)
-	cp.algorithmRadio.SetSelected("2D Otsu") // Pre-select as requested
+	cp.algorithmRadio.SetSelected("2D Otsu")
 
 	algorithmCard := widget.NewCard("Algorithm", "", cp.algorithmRadio)
 
-	// Processing
 	cp.generateButton = widget.NewButton("Generate Preview", cp.onGeneratePreview)
 	cp.generateButton.Importance = widget.HighImportance
 

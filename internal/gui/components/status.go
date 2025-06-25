@@ -93,7 +93,6 @@ func (sb *StatusBar) GetContainer() *fyne.Container {
 func (sb *StatusBar) SetStatus(status string) {
 	sb.statusLabel.SetText(status)
 
-	// Start spinner for processing states
 	if strings.Contains(strings.ToLower(status), "processing") ||
 		strings.Contains(strings.ToLower(status), "loading") ||
 		strings.Contains(strings.ToLower(status), "generating") {
@@ -132,7 +131,6 @@ func (sb *StatusBar) startSpinnerAnimation() {
 			fyne.Do(func() {
 				if sb.spinner.active {
 					currentText := sb.progressLabel.Text
-					// Remove existing spinner if present
 					if len(currentText) > 0 && (strings.HasSuffix(currentText, "|") ||
 						strings.HasSuffix(currentText, "/") ||
 						strings.HasSuffix(currentText, "-") ||
@@ -144,7 +142,6 @@ func (sb *StatusBar) startSpinnerAnimation() {
 			})
 			time.Sleep(250 * time.Millisecond)
 		}
-		// Clear spinner when stopped
 		fyne.Do(func() {
 			currentText := sb.progressLabel.Text
 			if len(currentText) > 0 && (strings.HasSuffix(currentText, "|") ||
