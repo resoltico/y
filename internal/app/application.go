@@ -13,11 +13,13 @@ import (
 )
 
 const (
-	AppName      = "Otsu Obliterator"
-	AppID        = "com.imageprocessing.otsuobliterator"
-	AppVersion   = "1.0.0"
-	WindowWidth  = 1400
-	WindowHeight = 900
+	AppName         = "Otsu Obliterator"
+	AppID           = "com.imageprocessing.otsuobliterator"
+	AppVersion      = "1.0.0"
+	WindowWidth     = 1400
+	WindowHeight    = 900
+	MinWindowWidth  = 800
+	MinWindowHeight = 600
 )
 
 type Application struct {
@@ -33,8 +35,13 @@ type Application struct {
 func NewApplication() (*Application, error) {
 	fyneApp := app.NewWithID(AppID)
 	window := fyneApp.NewWindow(AppName)
+
+	// Configure window for resizing - order matters in Fyne v2
 	window.Resize(fyne.NewSize(WindowWidth, WindowHeight))
-	window.SetMaster() // Ensures app exits when main window closes
+	window.SetFixedSize(false)
+	window.SetPadded(false) // Remove edge padding for edge-to-edge layout
+	window.CenterOnScreen()
+	window.SetMaster()
 
 	// Initialize debug system based on environment
 	debugConfig := getDebugConfig()

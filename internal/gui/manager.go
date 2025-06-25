@@ -5,11 +5,15 @@ import (
 
 	"otsu-obliterator/internal/debug"
 	"otsu-obliterator/internal/gui/components"
-	"otsu-obliterator/internal/gui/layout"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+)
+
+const (
+	LeftPanelWidth  = 280
+	RightPanelWidth = 320
 )
 
 type Manager struct {
@@ -23,10 +27,6 @@ type Manager struct {
 	controlsPanel   *components.ControlsPanel
 	parametersPanel *components.ParametersPanel
 	statusBar       *components.StatusBar
-
-	// Layouts
-	mainLayout      *layout.FixedColumnLayout
-	parameterLayout *layout.StableParameterLayout
 
 	// Event handlers
 	imageLoadHandler       func()
@@ -44,15 +44,6 @@ func NewManager(window fyne.Window, debugCoord debug.Coordinator) (*Manager, err
 	parametersPanel := components.NewParametersPanel()
 	statusBar := components.NewStatusBar()
 
-	// Define column widths for stability
-	columnWidths := []float32{280, 640, 320} // Controls, Images, Parameters
-	mainLayout := layout.NewFixedColumnLayout(columnWidths, 10)
-
-	// Parameter layout with stable sections
-	parameterLayout := layout.NewStableParameterLayout(320, 5)
-	parameterLayout.RegisterSection("quality", 80)
-	parameterLayout.RegisterSection("parameters", 400)
-
 	manager := &Manager{
 		window:          window,
 		debugCoord:      debugCoord,
@@ -62,16 +53,13 @@ func NewManager(window fyne.Window, debugCoord debug.Coordinator) (*Manager, err
 		controlsPanel:   controlsPanel,
 		parametersPanel: parametersPanel,
 		statusBar:       statusBar,
-		mainLayout:      mainLayout,
-		parameterLayout: parameterLayout,
 	}
 
 	manager.setupInitialState()
 
-	logger.Info("GUIManager", "initialized with stable layout", map[string]interface{}{
-		"left_width":    230,
-		"right_width":   270,
-		"right_padding": 10,
+	logger.Info("GUIManager", "initialized with border layout", map[string]interface{}{
+		"left_width":  LeftPanelWidth,
+		"right_width": RightPanelWidth,
 	})
 
 	return manager, nil
@@ -100,27 +88,31 @@ func (m *Manager) setupInitialState() {
 }
 
 func (m *Manager) GetMainContainer() *fyne.Container {
-	// Create panels
+	// Create left panel with width constraint
 	leftPanel := container.NewVBox(m.controlsPanel.GetContainer())
-	rightPanel := container.New(m.parameterLayout, m.parametersPanel.GetContainer())
+	leftPanel.Resize(fyne.NewSize(LeftPanelWidth, 0))
+
+	// Create right panel with width constraint
+	rightPanel := container.NewVBox(m.parametersPanel.GetContainer())
+	rightPanel.Resize(fyne.NewSize(RightPanelWidth, 0))
+
+	// Create center area that expands with window
 	centerPanel := m.imageDisplay.GetContainer()
 
-	// Add 1px spacer for right padding
-	spacer := container.NewWithoutLayout()
-	spacer.Resize(fyne.NewSize(1, 0))
+	// Use BorderLayout for edge-to-edge alignment and resizing
+	mainContent := container.NewBorder(
+		nil, nil, // no top/bottom panels
+		leftPanel,   // left panel snaps to left edge
+		rightPanel,  // right panel snaps to right edge
+		centerPanel, // center area expands/contracts with window
+	)
 
-	rightWithPadding := container.NewHBox(rightPanel, spacer)
-
-	mainContent := container.NewBorder(nil, nil,
-		leftPanel,        // Left: no padding
-		rightWithPadding, // Right: with 1px padding
-		centerPanel)      // Center: remaining space
-
+	// Add status bar at bottom
 	return container.NewBorder(
-		nil,                        // Top
-		m.statusBar.GetContainer(), // Bottom
-		nil, nil,                   // Left/right borders
-		mainContent, // Center
+		nil,                        // no top panel
+		m.statusBar.GetContainer(), // status bar at bottom
+		nil, nil,                   // no left/right border panels at this level
+		mainContent, // main content fills center
 	)
 }
 
