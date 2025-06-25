@@ -6,67 +6,69 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
 
 const (
-	ScrollViewportWidth  = 500
-	ScrollViewportHeight = 400
-	ImageDisplayWidth    = 800
-	ImageDisplayHeight   = 600
+	ImageConstraintWidth  = 640
+	ImageConstraintHeight = 480
+	MinViewportWidth      = 400
+	MinViewportHeight     = 300
 )
 
 type ImageDisplay struct {
-	container       *fyne.Container
-	originalImage   *canvas.Image
-	previewImage    *canvas.Image
-	scrollContainer *container.Scroll
+	container      *fyne.Container
+	originalImage  *canvas.Image
+	previewImage   *canvas.Image
+	originalScroll *container.Scroll
+	previewScroll  *container.Scroll
 }
 
 func NewImageDisplay() *ImageDisplay {
-	// Create placeholder images with scrollable dimensions
+	// Create constrained image displays
 	originalImage := canvas.NewImageFromImage(nil)
-	originalImage.FillMode = canvas.ImageFillOriginal
-	originalImage.SetMinSize(fyne.NewSize(ImageDisplayWidth, ImageDisplayHeight))
+	originalImage.FillMode = canvas.ImageFillContain
+	originalImage.ScaleMode = canvas.ImageScaleSmooth
+	originalImage.SetMinSize(fyne.NewSize(ImageConstraintWidth, ImageConstraintHeight))
 
 	previewImage := canvas.NewImageFromImage(nil)
-	previewImage.FillMode = canvas.ImageFillOriginal
-	previewImage.SetMinSize(fyne.NewSize(ImageDisplayWidth, ImageDisplayHeight))
+	previewImage.FillMode = canvas.ImageFillContain
+	previewImage.ScaleMode = canvas.ImageScaleSmooth
+	previewImage.SetMinSize(fyne.NewSize(ImageConstraintWidth, ImageConstraintHeight))
 
-	// Create labeled containers for each image
+	// Create scrollable containers for each image
+	originalScroll := container.NewScroll(originalImage)
+	originalScroll.SetMinSize(fyne.NewSize(MinViewportWidth, MinViewportHeight))
+
+	previewScroll := container.NewScroll(previewImage)
+	previewScroll.SetMinSize(fyne.NewSize(MinViewportWidth, MinViewportHeight))
+
+	// Create labeled containers
 	originalContainer := container.NewVBox(
 		widget.NewRichTextFromMarkdown("**Original**"),
-		originalImage,
+		originalScroll,
 	)
 
 	previewContainer := container.NewVBox(
 		widget.NewRichTextFromMarkdown("**Preview**"),
-		previewImage,
+		previewScroll,
 	)
 
-	// Layout images horizontally for side-by-side display
-	imageLayout := container.New(
-		layout.NewHBoxLayout(),
-		originalContainer,
-		previewContainer,
-	)
+	// Create horizontal split layout for dual-pane display
+	splitContainer := container.NewHSplit(originalContainer, previewContainer)
+	splitContainer.SetOffset(0.5) // Equal split
 
-	// Create scroll container for horizontal and vertical scrolling
-	scrollContainer := container.NewScroll(imageLayout)
-	scrollContainer.SetMinSize(fyne.NewSize(ScrollViewportWidth, ScrollViewportHeight))
-
-	// Wrap scroll container in border layout for expansion behavior
-	mainContainer := container.NewBorder(
-		nil, nil, nil, nil,
-		scrollContainer,
-	)
+	// Wrap split container in a regular container
+	mainContainer := container.NewWithoutLayout(splitContainer)
+	mainContainer.Add(splitContainer)
+	splitContainer.Resize(fyne.NewSize(ImageConstraintWidth*2, ImageConstraintHeight+60))
 
 	return &ImageDisplay{
-		container:       mainContainer,
-		originalImage:   originalImage,
-		previewImage:    previewImage,
-		scrollContainer: scrollContainer,
+		container:      mainContainer,
+		originalImage:  originalImage,
+		previewImage:   previewImage,
+		originalScroll: originalScroll,
+		previewScroll:  previewScroll,
 	}
 }
 
@@ -76,34 +78,38 @@ func (id *ImageDisplay) GetContainer() *fyne.Container {
 
 func (id *ImageDisplay) SetOriginalImage(img image.Image) {
 	if img == nil {
+		id.originalImage.Image = nil
+		id.originalImage.Refresh()
 		return
 	}
 
 	id.originalImage.Image = img
-
-	// Update image size based on actual image dimensions
-	bounds := img.Bounds()
-	actualWidth := float32(bounds.Dx())
-	actualHeight := float32(bounds.Dy())
-
-	// Set minimum size to actual image size to enable scrolling
-	id.originalImage.SetMinSize(fyne.NewSize(actualWidth, actualHeight))
 	id.originalImage.Refresh()
 }
 
 func (id *ImageDisplay) SetPreviewImage(img image.Image) {
 	if img == nil {
+		id.previewImage.Image = nil
+		id.previewImage.Refresh()
 		return
 	}
 
 	id.previewImage.Image = img
-
-	// Update image size based on actual image dimensions
-	bounds := img.Bounds()
-	actualWidth := float32(bounds.Dx())
-	actualHeight := float32(bounds.Dy())
-
-	// Set minimum size to actual image size to enable scrolling
-	id.previewImage.SetMinSize(fyne.NewSize(actualWidth, actualHeight))
 	id.previewImage.Refresh()
+}
+
+func (id *ImageDisplay) GetRequiredWindowSize(leftPanelWidth, rightPanelWidth float32) fyne.Size {
+	// Calculate total window size needed for 640x480 image areas
+	totalImageWidth := float32(ImageConstraintWidth * 2)
+	totalPanelWidth := leftPanelWidth + rightPanelWidth
+	totalImageHeight := float32(ImageConstraintHeight)
+
+	// Add space for labels and padding
+	labelHeight := float32(30)
+	padding := float32(20)
+
+	return fyne.Size{
+		Width:  totalImageWidth + totalPanelWidth + padding,
+		Height: totalImageHeight + labelHeight + padding,
+	}
 }

@@ -16,8 +16,9 @@ const (
 	AppName         = "Otsu Obliterator"
 	AppID           = "com.imageprocessing.otsuobliterator"
 	AppVersion      = "1.0.0"
-	WindowWidth     = 1400
-	WindowHeight    = 900
+	LeftPanelWidth  = 280
+	RightPanelWidth = 320
+	StatusBarHeight = 40
 	MinWindowWidth  = 800
 	MinWindowHeight = 600
 )
@@ -36,14 +37,19 @@ func NewApplication() (*Application, error) {
 	fyneApp := app.NewWithID(AppID)
 	window := fyneApp.NewWindow(AppName)
 
-	// Configure window for resizing - order matters in Fyne v2
-	window.Resize(fyne.NewSize(WindowWidth, WindowHeight))
+	// Calculate window size based on constrained image areas
+	imageRequiredSize := calculateImageDisplaySize()
+	windowWidth := imageRequiredSize.Width + LeftPanelWidth + RightPanelWidth
+	windowHeight := imageRequiredSize.Height + StatusBarHeight
+
+	// Set window configuration
+	window.Resize(fyne.NewSize(windowWidth, windowHeight))
 	window.SetFixedSize(false)
-	window.SetPadded(false) // Remove edge padding for edge-to-edge layout
+	window.SetPadded(false)
 	window.CenterOnScreen()
 	window.SetMaster()
 
-	// Initialize debug system based on environment
+	// Initialize debug system
 	debugConfig := getDebugConfig()
 	debugCoord := debug.NewCoordinator(debugConfig)
 
@@ -52,6 +58,8 @@ func NewApplication() (*Application, error) {
 
 	logger.Info("Application", "starting application", map[string]interface{}{
 		"version":       AppVersion,
+		"window_width":  windowWidth,
+		"window_height": windowHeight,
 		"debug_enabled": debugConfig.EnableLogging,
 	})
 
@@ -81,6 +89,18 @@ func NewApplication() (*Application, error) {
 
 	logger.Info("Application", "initialization complete", nil)
 	return application, nil
+}
+
+func calculateImageDisplaySize() fyne.Size {
+	// Each constrained image is 640x480, dual-pane requires 1280x480 plus labels/padding
+	imageWidth := float32(640 * 2)
+	imageHeight := float32(480)
+	labelPadding := float32(60) // Space for labels and padding
+
+	return fyne.Size{
+		Width:  imageWidth,
+		Height: imageHeight + labelPadding,
+	}
 }
 
 func (a *Application) setupHandlers() error {

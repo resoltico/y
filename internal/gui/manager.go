@@ -57,9 +57,11 @@ func NewManager(window fyne.Window, debugCoord debug.Coordinator) (*Manager, err
 
 	manager.setupInitialState()
 
-	logger.Info("GUIManager", "initialized with border layout", map[string]interface{}{
-		"left_width":  LeftPanelWidth,
-		"right_width": RightPanelWidth,
+	logger.Info("GUIManager", "initialized with constrained image display", map[string]interface{}{
+		"left_width":   LeftPanelWidth,
+		"right_width":  RightPanelWidth,
+		"image_width":  components.ImageConstraintWidth,
+		"image_height": components.ImageConstraintHeight,
 	})
 
 	return manager, nil
@@ -90,29 +92,27 @@ func (m *Manager) setupInitialState() {
 func (m *Manager) GetMainContainer() *fyne.Container {
 	// Create left panel with width constraint
 	leftPanel := container.NewVBox(m.controlsPanel.GetContainer())
-	leftPanel.Resize(fyne.NewSize(LeftPanelWidth, 0))
 
 	// Create right panel with width constraint
 	rightPanel := container.NewVBox(m.parametersPanel.GetContainer())
-	rightPanel.Resize(fyne.NewSize(RightPanelWidth, 0))
 
-	// Create center area that expands with window
+	// Get center panel (constrained image display)
 	centerPanel := m.imageDisplay.GetContainer()
 
-	// Use BorderLayout for edge-to-edge alignment and resizing
+	// Use BorderLayout for layout management
 	mainContent := container.NewBorder(
-		nil, nil, // no top/bottom panels
-		leftPanel,   // left panel snaps to left edge
-		rightPanel,  // right panel snaps to right edge
-		centerPanel, // center area expands/contracts with window
+		nil, nil,
+		leftPanel,
+		rightPanel,
+		centerPanel,
 	)
 
 	// Add status bar at bottom
 	return container.NewBorder(
-		nil,                        // no top panel
-		m.statusBar.GetContainer(), // status bar at bottom
-		nil, nil,                   // no left/right border panels at this level
-		mainContent, // main content fills center
+		nil,
+		m.statusBar.GetContainer(),
+		nil, nil,
+		mainContent,
 	)
 }
 
@@ -226,10 +226,7 @@ func (m *Manager) ShowError(title string, err error) {
 }
 
 func (m *Manager) requestParameterUpdate(algorithm string) {
-	// This will be called by handlers to update parameters when algorithm changes
-	if m.algorithmChangeHandler != nil {
-		// The actual parameter update will be handled by the application handler
-	}
+	// Parameter update handled by application handler
 }
 
 func (m *Manager) Shutdown() {
@@ -238,6 +235,5 @@ func (m *Manager) Shutdown() {
 	}
 
 	m.isShutdown = true
-
 	m.logger.Info("GUIManager", "shutdown initiated", nil)
 }
