@@ -1,20 +1,21 @@
 package app
 
 import (
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
 	"otsu-obliterator/internal/debug"
 	"otsu-obliterator/internal/gui"
 	"otsu-obliterator/internal/opencv/memory"
 	"otsu-obliterator/internal/pipeline"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
 )
 
 const (
 	AppName      = "Otsu Obliterator"
 	AppID        = "com.imageprocessing.otsuobliterator"
 	AppVersion   = "1.0.0"
-	WindowWidth  = 1200
-	WindowHeight = 800
+	WindowWidth  = 1400
+	WindowHeight = 900
 )
 
 type Application struct {
@@ -31,12 +32,12 @@ func NewApplication() (*Application, error) {
 	fyneApp := app.NewWithID(AppID)
 	window := fyneApp.NewWindow(AppName)
 	window.Resize(fyne.NewSize(WindowWidth, WindowHeight))
-	window.SetFixedSize(true)
+	window.SetMaster() // Ensures app exits when main window closes
 
 	debugManager := debug.NewManager()
 	memoryManager := memory.NewManager(debugManager)
 	coordinator := pipeline.NewCoordinator(memoryManager, debugManager)
-	
+
 	guiManager, err := gui.NewManager(window, debugManager)
 	if err != nil {
 		return nil, err
@@ -63,7 +64,7 @@ func NewApplication() (*Application, error) {
 
 func (a *Application) setupHandlers() error {
 	handlers := NewHandlers(a.coordinator, a.guiManager, a.debugManager)
-	
+
 	a.guiManager.SetImageLoadHandler(handlers.HandleImageLoad)
 	a.guiManager.SetImageSaveHandler(handlers.HandleImageSave)
 	a.guiManager.SetAlgorithmChangeHandler(handlers.HandleAlgorithmChange)
@@ -74,8 +75,13 @@ func (a *Application) setupHandlers() error {
 }
 
 func (a *Application) Run() error {
-	a.window.SetCloseIntercept(a.lifecycle.Shutdown)
+	a.window.SetCloseIntercept(func() {
+		a.lifecycle.Shutdown()
+		a.window.Close()
+	})
+
 	a.window.SetContent(a.guiManager.GetMainContainer())
-	a.window.ShowAndRun()
+	a.window.Show()
+	a.fyneApp.Run()
 	return nil
 }

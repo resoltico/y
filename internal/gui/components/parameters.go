@@ -8,42 +8,52 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-type ParameterPanel struct {
-	container           *fyne.Container
-	parametersContainer *fyne.Container
-	currentWidgets      map[string]fyne.CanvasObject
-	onParameterChange   func(string, interface{})
+type ParametersPanel struct {
+	container         *fyne.Container
+	qualitySection    *fyne.Container
+	parametersSection *fyne.Container
+	onParameterChange func(string, interface{})
 }
 
-func NewParameterPanel() *ParameterPanel {
-	panel := &ParameterPanel{
-		currentWidgets: make(map[string]fyne.CanvasObject),
-	}
+func NewParametersPanel() *ParametersPanel {
+	panel := &ParametersPanel{}
 	panel.setupPanel()
 	return panel
 }
 
-func (pp *ParameterPanel) setupPanel() {
-	parametersLabel := widget.NewLabel("Parameters")
-	pp.parametersContainer = container.NewVBox()
-	
+func (pp *ParametersPanel) setupPanel() {
+	// Quality section at top (leftmost column)
+	pp.qualitySection = container.NewVBox()
+
+	// Parameters section below quality
+	pp.parametersSection = container.NewVBox()
+
 	pp.container = container.NewVBox(
-		parametersLabel,
-		pp.parametersContainer,
+		widget.NewCard("Quality", "", pp.qualitySection),
+		widget.NewCard("Parameters", "", pp.parametersSection),
 	)
 }
 
-func (pp *ParameterPanel) GetContainer() *fyne.Container {
+func (pp *ParametersPanel) GetContainer() *fyne.Container {
 	return pp.container
 }
 
-func (pp *ParameterPanel) SetParameterChangeHandler(handler func(string, interface{})) {
+func (pp *ParametersPanel) SetParameterChangeHandler(handler func(string, interface{})) {
 	pp.onParameterChange = handler
 }
 
-func (pp *ParameterPanel) UpdateParameters(algorithm string, params map[string]interface{}) {
-	pp.parametersContainer.RemoveAll()
-	pp.currentWidgets = make(map[string]fyne.CanvasObject)
+func (pp *ParametersPanel) UpdateParameters(algorithm string, params map[string]interface{}) {
+	pp.qualitySection.RemoveAll()
+	pp.parametersSection.RemoveAll()
+
+	// Quality radio buttons - always first
+	qualityRadio := widget.NewRadioGroup([]string{"Fast", "Best"}, func(value string) {
+		if pp.onParameterChange != nil {
+			pp.onParameterChange("quality", value)
+		}
+	})
+	qualityRadio.SetSelected(pp.getStringParam(params, "quality", "Fast"))
+	pp.qualitySection.Add(qualityRadio)
 
 	switch algorithm {
 	case "2D Otsu":
@@ -52,16 +62,11 @@ func (pp *ParameterPanel) UpdateParameters(algorithm string, params map[string]i
 		pp.createIterativeTriclassParameters(params)
 	}
 
-	pp.parametersContainer.Refresh()
+	pp.container.Refresh()
 }
 
-func (pp *ParameterPanel) create2DOtsuParameters(params map[string]interface{}) {
-	qualityRadio := widget.NewRadioGroup([]string{"Fast", "Best"}, func(value string) {
-		pp.onParameterChange("quality", value)
-	})
-	qualityRadio.SetSelected(pp.getStringParam(params, "quality", "Fast"))
-	pp.addParameter("Quality", qualityRadio)
-
+func (pp *ParametersPanel) create2DOtsuParameters(params map[string]interface{}) {
+	// Window Size
 	windowSize := pp.getIntParam(params, "window_size", 7)
 	windowSizeSlider := widget.NewSlider(3, 21)
 	windowSizeSlider.Step = 2
@@ -73,10 +78,12 @@ func (pp *ParameterPanel) create2DOtsuParameters(params map[string]interface{}) 
 			intValue++
 		}
 		windowSizeLabel.SetText("Window Size: " + strconv.Itoa(intValue))
-		pp.onParameterChange("window_size", intValue)
+		if pp.onParameterChange != nil {
+			pp.onParameterChange("window_size", intValue)
+		}
 	}
-	pp.addParameterWithLabel("Window Size", windowSizeSlider, windowSizeLabel)
 
+	// Histogram Bins
 	histBins := pp.getIntParam(params, "histogram_bins", 64)
 	histBinsSlider := widget.NewSlider(16, 256)
 	histBinsSlider.SetValue(float64(histBins))
@@ -84,54 +91,68 @@ func (pp *ParameterPanel) create2DOtsuParameters(params map[string]interface{}) 
 	histBinsSlider.OnChanged = func(value float64) {
 		intValue := int(value)
 		histBinsLabel.SetText("Histogram Bins: " + strconv.Itoa(intValue))
-		pp.onParameterChange("histogram_bins", intValue)
+		if pp.onParameterChange != nil {
+			pp.onParameterChange("histogram_bins", intValue)
+		}
 	}
-	pp.addParameterWithLabel("Histogram Bins", histBinsSlider, histBinsLabel)
 
+	// Neighbourhood Metric
 	neighMetric := widget.NewSelect([]string{"mean", "median", "gaussian"}, func(value string) {
-		pp.onParameterChange("neighbourhood_metric", value)
+		if pp.onParameterChange != nil {
+			pp.onParameterChange("neighbourhood_metric", value)
+		}
 	})
 	neighMetric.SetSelected(pp.getStringParam(params, "neighbourhood_metric", "mean"))
-	pp.addParameter("Neighbourhood Metric", neighMetric)
 
+	// Pixel Weight Factor
 	pixelWeight := pp.getFloatParam(params, "pixel_weight_factor", 0.5)
 	pixelWeightSlider := widget.NewSlider(0.0, 1.0)
 	pixelWeightSlider.SetValue(pixelWeight)
 	pixelWeightLabel := widget.NewLabel("Pixel Weight: " + strconv.FormatFloat(pixelWeight, 'f', 2, 64))
 	pixelWeightSlider.OnChanged = func(value float64) {
 		pixelWeightLabel.SetText("Pixel Weight: " + strconv.FormatFloat(value, 'f', 2, 64))
-		pp.onParameterChange("pixel_weight_factor", value)
+		if pp.onParameterChange != nil {
+			pp.onParameterChange("pixel_weight_factor", value)
+		}
 	}
-	pp.addParameterWithLabel("Pixel Weight Factor", pixelWeightSlider, pixelWeightLabel)
 
-	pp.addCheckbox("Use Log Histogram", "use_log_histogram", params)
-	pp.addCheckbox("Normalize Histogram", "normalize_histogram", params)
-	pp.addCheckbox("Apply Contrast Enhancement", "apply_contrast_enhancement", params)
+	pp.parametersSection.Add(container.NewVBox(
+		windowSizeLabel,
+		windowSizeSlider,
+		histBinsLabel,
+		histBinsSlider,
+		widget.NewLabel("Neighbourhood Metric"),
+		neighMetric,
+		pixelWeightLabel,
+		pixelWeightSlider,
+		pp.createCheckbox("Use Log Histogram", "use_log_histogram", params),
+		pp.createCheckbox("Normalize Histogram", "normalize_histogram", params),
+		pp.createCheckbox("Apply Contrast Enhancement", "apply_contrast_enhancement", params),
+	))
 }
 
-func (pp *ParameterPanel) createIterativeTriclassParameters(params map[string]interface{}) {
-	qualityRadio := widget.NewRadioGroup([]string{"Fast", "Best"}, func(value string) {
-		pp.onParameterChange("quality", value)
-	})
-	qualityRadio.SetSelected(pp.getStringParam(params, "quality", "Fast"))
-	pp.addParameter("Quality", qualityRadio)
-
+func (pp *ParametersPanel) createIterativeTriclassParameters(params map[string]interface{}) {
+	// Initial Threshold Method
 	initialMethod := widget.NewSelect([]string{"otsu", "mean", "median"}, func(value string) {
-		pp.onParameterChange("initial_threshold_method", value)
+		if pp.onParameterChange != nil {
+			pp.onParameterChange("initial_threshold_method", value)
+		}
 	})
 	initialMethod.SetSelected(pp.getStringParam(params, "initial_threshold_method", "otsu"))
-	pp.addParameter("Initial Threshold Method", initialMethod)
 
+	// Convergence Epsilon
 	convEpsilon := pp.getFloatParam(params, "convergence_epsilon", 1.0)
 	convEpsilonSlider := widget.NewSlider(0.1, 10.0)
 	convEpsilonSlider.SetValue(convEpsilon)
 	convEpsilonLabel := widget.NewLabel("Convergence Epsilon: " + strconv.FormatFloat(convEpsilon, 'f', 1, 64))
 	convEpsilonSlider.OnChanged = func(value float64) {
 		convEpsilonLabel.SetText("Convergence Epsilon: " + strconv.FormatFloat(value, 'f', 1, 64))
-		pp.onParameterChange("convergence_epsilon", value)
+		if pp.onParameterChange != nil {
+			pp.onParameterChange("convergence_epsilon", value)
+		}
 	}
-	pp.addParameterWithLabel("Convergence Epsilon", convEpsilonSlider, convEpsilonLabel)
 
+	// Max Iterations
 	maxIter := pp.getIntParam(params, "max_iterations", 10)
 	maxIterSlider := widget.NewSlider(1, 20)
 	maxIterSlider.SetValue(float64(maxIter))
@@ -139,57 +160,53 @@ func (pp *ParameterPanel) createIterativeTriclassParameters(params map[string]in
 	maxIterSlider.OnChanged = func(value float64) {
 		intValue := int(value)
 		maxIterLabel.SetText("Max Iterations: " + strconv.Itoa(intValue))
-		pp.onParameterChange("max_iterations", intValue)
+		if pp.onParameterChange != nil {
+			pp.onParameterChange("max_iterations", intValue)
+		}
 	}
-	pp.addParameterWithLabel("Max Iterations", maxIterSlider, maxIterLabel)
 
-	pp.addCheckbox("Apply Preprocessing", "apply_preprocessing", params)
-	pp.addCheckbox("Apply Cleanup", "apply_cleanup", params)
-	pp.addCheckbox("Preserve Borders", "preserve_borders", params)
+	pp.parametersSection.Add(container.NewVBox(
+		widget.NewLabel("Initial Threshold Method"),
+		initialMethod,
+		convEpsilonLabel,
+		convEpsilonSlider,
+		maxIterLabel,
+		maxIterSlider,
+		pp.createCheckbox("Apply Preprocessing", "apply_preprocessing", params),
+		pp.createCheckbox("Apply Cleanup", "apply_cleanup", params),
+		pp.createCheckbox("Preserve Borders", "preserve_borders", params),
+	))
 }
 
-func (pp *ParameterPanel) addParameter(label string, obj fyne.CanvasObject) {
-	paramLabel := widget.NewLabel(label)
-	paramContainer := container.NewVBox(paramLabel, obj)
-	pp.parametersContainer.Add(paramContainer)
-	pp.currentWidgets[label] = obj
-}
-
-func (pp *ParameterPanel) addParameterWithLabel(label string, slider *widget.Slider, valueLabel *widget.Label) {
-	paramLabel := widget.NewLabel(label)
-	paramContainer := container.NewVBox(paramLabel, valueLabel, slider)
-	pp.parametersContainer.Add(paramContainer)
-	pp.currentWidgets[label] = slider
-}
-
-func (pp *ParameterPanel) addCheckbox(label, paramName string, params map[string]interface{}) {
+func (pp *ParametersPanel) createCheckbox(label, paramName string, params map[string]interface{}) *widget.Check {
 	checkbox := widget.NewCheck(label, func(checked bool) {
-		pp.onParameterChange(paramName, checked)
+		if pp.onParameterChange != nil {
+			pp.onParameterChange(paramName, checked)
+		}
 	})
 
 	if value, ok := params[paramName].(bool); ok {
 		checkbox.SetChecked(value)
 	}
 
-	pp.parametersContainer.Add(checkbox)
-	pp.currentWidgets[label] = checkbox
+	return checkbox
 }
 
-func (pp *ParameterPanel) getIntParam(params map[string]interface{}, key string, defaultValue int) int {
+func (pp *ParametersPanel) getIntParam(params map[string]interface{}, key string, defaultValue int) int {
 	if value, ok := params[key].(int); ok {
 		return value
 	}
 	return defaultValue
 }
 
-func (pp *ParameterPanel) getFloatParam(params map[string]interface{}, key string, defaultValue float64) float64 {
+func (pp *ParametersPanel) getFloatParam(params map[string]interface{}, key string, defaultValue float64) float64 {
 	if value, ok := params[key].(float64); ok {
 		return value
 	}
 	return defaultValue
 }
 
-func (pp *ParameterPanel) getStringParam(params map[string]interface{}, key string, defaultValue string) string {
+func (pp *ParametersPanel) getStringParam(params map[string]interface{}, key string, defaultValue string) string {
 	if value, ok := params[key].(string); ok {
 		return value
 	}
