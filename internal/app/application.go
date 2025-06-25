@@ -21,7 +21,7 @@ type Application struct {
 	fyneApp       fyne.App
 	window        fyne.Window
 	guiManager    *gui.Manager
-	pipelineCoord *pipeline.Coordinator
+	coordinator   pipeline.ProcessingCoordinator
 	memoryManager *memory.Manager
 	debugManager  *debug.Manager
 	lifecycle     *Lifecycle
@@ -35,7 +35,7 @@ func NewApplication() (*Application, error) {
 
 	debugManager := debug.NewManager()
 	memoryManager := memory.NewManager(debugManager)
-	pipelineCoord := pipeline.NewCoordinator(memoryManager, debugManager)
+	coordinator := pipeline.NewCoordinator(memoryManager, debugManager)
 	
 	guiManager, err := gui.NewManager(window, debugManager)
 	if err != nil {
@@ -48,7 +48,7 @@ func NewApplication() (*Application, error) {
 		fyneApp:       fyneApp,
 		window:        window,
 		guiManager:    guiManager,
-		pipelineCoord: pipelineCoord,
+		coordinator:   coordinator,
 		memoryManager: memoryManager,
 		debugManager:  debugManager,
 		lifecycle:     lifecycle,
@@ -62,7 +62,7 @@ func NewApplication() (*Application, error) {
 }
 
 func (a *Application) setupHandlers() error {
-	handlers := NewHandlers(a.pipelineCoord, a.guiManager, a.debugManager)
+	handlers := NewHandlers(a.coordinator, a.guiManager, a.debugManager)
 	
 	a.guiManager.SetImageLoadHandler(handlers.HandleImageLoad)
 	a.guiManager.SetImageSaveHandler(handlers.HandleImageSave)

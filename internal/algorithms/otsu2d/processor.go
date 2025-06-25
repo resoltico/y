@@ -2,11 +2,11 @@ package otsu2d
 
 import (
 	"fmt"
-	"image"
 
-	"gocv.io/x/gocv"
 	"otsu-obliterator/internal/opencv/conversion"
 	"otsu-obliterator/internal/opencv/safe"
+
+	"gocv.io/x/gocv"
 )
 
 type Processor struct {
@@ -30,9 +30,9 @@ func (p *Processor) GetDefaultParameters() map[string]interface{} {
 		"histogram_bins":             64,
 		"neighbourhood_metric":       "mean",
 		"pixel_weight_factor":        0.5,
-		"smoothing_sigma":           1.0,
-		"use_log_histogram":         false,
-		"normalize_histogram":       true,
+		"smoothing_sigma":            1.0,
+		"use_log_histogram":          false,
+		"normalize_histogram":        true,
 		"apply_contrast_enhancement": false,
 	}
 }

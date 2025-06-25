@@ -1,241 +1,203 @@
 #!/bin/bash
 
-# Otsu Obliterator Build Script
 set -e
 
-BINARY_NAME="otsu-obliterator"
-VERSION="1.0.0"
+# Auto-detect project settings
+BINARY_NAME=$(basename "$(pwd)")
+VERSION=${VERSION:-"1.0.0"}
+BUILD_DIR=${BUILD_DIR:-"build"}
 
-# Color output
+# Auto-detect CMD_DIR by finding the actual cmd subdirectory
+if [ -z "$CMD_DIR" ]; then
+    if [ -d "cmd/${BINARY_NAME}" ]; then
+        CMD_DIR="cmd/${BINARY_NAME}"
+    elif [ -d "cmd" ] && [ "$(find cmd -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 1 ]; then
+        CMD_DIR=$(find cmd -mindepth 1 -maxdepth 1 -type d | head -1)
+    else
+        CMD_DIR="cmd/${BINARY_NAME}"
+    fi
+fi
+
+# Build flags
+LDFLAGS="-s -w -X main.version=${VERSION}"
+BUILD_TAGS="matprofile"
+
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
-print_help() {
-    echo "Otsu Obliterator Build Script"
-    echo ""
-    echo "Usage: $0 [command] [options]"
-    echo ""
-    echo "Commands:"
-    echo "  build           Build production binary"
-    echo "  build-profile   Build with Mat profiling"
-    echo "  run             Run production build"
-    echo "  run-profile     Run with profiling server"
-    echo "  debug [type]    Run with specific debug mode"
-    echo "  test            Run tests"
-    echo "  clean           Clean build artifacts"
-    echo "  deps            Install dependencies"
-    echo "  cross [os]      Cross-compile for target OS"
-    echo ""
-    echo "Debug types:"
-    echo "  format          Image format detection"
-    echo "  gui             GUI events"
-    echo "  algorithms      Algorithm execution"
-    echo "  memory          Memory usage"
-    echo "  triclass        Iterative triclass algorithm"
-    echo "  safe            Safe debugging (no pixel analysis)"
-    echo "  all             All debugging enabled"
-    echo ""
-    echo "Cross-compile targets:"
-    echo "  windows         Windows (amd64)"
-    echo "  macos           macOS (Intel)"
-    echo "  macos-arm64     macOS (Apple Silicon)"
-    echo "  linux           Linux (amd64)"
-    echo "  universal       macOS universal binary"
-    echo ""
-    echo "Examples:"
-    echo "  $0 build-profile"
-    echo "  $0 debug format"
-    echo "  $0 cross windows"
+log() {
+    echo -e "${BLUE}[$(date +'%H:%M:%S')]${NC} $1"
+}
+
+success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+error() {
+    echo -e "${RED}✗${NC} $1" >&2
+}
+
+warn() {
+    echo -e "${YELLOW}⚠${NC} $1"
 }
 
 check_deps() {
-    echo -e "${BLUE}Checking dependencies...${NC}"
+    log "Checking dependencies..."
     
     if ! command -v go &> /dev/null; then
-        echo -e "${RED}Error: Go not found. Please install Go 1.24+${NC}"
+        error "Go not found. Install Go 1.24+"
         exit 1
     fi
     
     if ! pkg-config --exists opencv4 && ! pkg-config --exists opencv; then
-        echo -e "${RED}Error: OpenCV not found. Please install OpenCV 4.11.0+${NC}"
+        warn "OpenCV not found. Install OpenCV 4.11.0+ for full functionality"
+    fi
+    
+    success "Dependencies checked"
+}
+
+build() {
+    local target=${1:-"default"}
+    local output_name="${BINARY_NAME}"
+    local extra_flags=""
+    
+    case $target in
+        "profile")
+            extra_flags="-tags ${BUILD_TAGS}"
+            log "Building with profiling..."
+            ;;
+        "windows")
+            output_name="${BINARY_NAME}.exe"
+            export GOOS=windows GOARCH=amd64
+            extra_flags="-tags ${BUILD_TAGS}"
+            ;;
+        "macos")
+            output_name="${BINARY_NAME}-macos-amd64"
+            export GOOS=darwin GOARCH=amd64
+            extra_flags="-tags ${BUILD_TAGS}"
+            ;;
+        "macos-arm64")
+            output_name="${BINARY_NAME}-macos-arm64"
+            export GOOS=darwin GOARCH=arm64
+            extra_flags="-tags ${BUILD_TAGS}"
+            ;;
+        "linux")
+            output_name="${BINARY_NAME}-linux-amd64"
+            export GOOS=linux GOARCH=amd64
+            extra_flags="-tags ${BUILD_TAGS}"
+            ;;
+        *)
+            log "Building ${BINARY_NAME}..."
+            ;;
+    esac
+    
+    mkdir -p "${BUILD_DIR}"
+    
+    if ! go build ${extra_flags} -ldflags="${LDFLAGS}" -o "${BUILD_DIR}/${output_name}" "./${CMD_DIR}"; then
+        error "Build failed"
         exit 1
     fi
     
-    echo -e "${GREEN}Dependencies OK${NC}"
-}
-
-build_binary() {
-    local build_tags="$1"
-    local output="$2"
-    local ldflags="-s -w"
-    
-    echo -e "${BLUE}Building ${output}...${NC}"
-    
-    if [ -n "$build_tags" ]; then
-        go build -tags "$build_tags" -ldflags="$ldflags" -o "$output" .
-    else
-        go build -ldflags="$ldflags" -o "$output" .
-    fi
-    
-    echo -e "${GREEN}Build complete: ${output}${NC}"
+    success "Built: ${BUILD_DIR}/${output_name}"
 }
 
 run_with_env() {
     local env_vars="$1"
-    local binary="$2"
-    local message="$3"
+    local message="$2"
     
-    echo -e "${YELLOW}$message${NC}"
+    log "$message"
     
     if [ -n "$env_vars" ]; then
-        env $env_vars go run -tags matprofile .
+        env $env_vars go run -tags ${BUILD_TAGS} "./${CMD_DIR}"
     else
-        ./"$binary"
+        if [ -f "${BUILD_DIR}/${BINARY_NAME}" ]; then
+            "./${BUILD_DIR}/${BINARY_NAME}"
+        else
+            build
+            "./${BUILD_DIR}/${BINARY_NAME}"
+        fi
     fi
 }
 
-setup_debug_env() {
-    local debug_type="$1"
-    
-    case "$debug_type" in
-        format)
-            echo "OTSU_DEBUG_FORMAT=true"
-            ;;
-        gui)
-            echo "OTSU_DEBUG_GUI=true"
-            ;;
-        algorithms)
-            echo "OTSU_DEBUG_ALGORITHMS=true"
-            ;;
-        memory)
-            echo "OTSU_DEBUG_MEMORY=true"
-            ;;
-        triclass)
-            echo "OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true"
-            ;;
-        safe)
-            echo "OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_FORMAT=true"
-            ;;
-        all)
-            echo "OTSU_DEBUG_FORMAT=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_MEMORY=true OTSU_DEBUG_PERFORMANCE=true OTSU_DEBUG_GUI=true OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_PIXELS=true"
-            ;;
-        *)
-            echo -e "${RED}Unknown debug type: $debug_type${NC}"
-            echo "Available types: format, gui, algorithms, memory, triclass, safe, all"
-            exit 1
-            ;;
-    esac
+show_help() {
+    cat << EOF
+Usage: $0 [command] [options]
+
+Commands:
+  build [target]      Build binary (default, profile, windows, macos, macos-arm64, linux)
+  run                 Build and run application
+  debug [type]        Run with debug flags (safe, all, format, gui, algorithms)
+  test                Run tests
+  clean               Clean build artifacts
+  deps                Install dependencies
+  help                Show this help
+
+Examples:
+  $0 build profile    Build with profiling
+  $0 debug safe       Run with safe debugging
+  $0 build windows    Cross-compile for Windows
+EOF
 }
 
-cross_compile() {
-    local target="$1"
-    
-    case "$target" in
-        windows)
-            echo -e "${BLUE}Building for Windows...${NC}"
-            GOOS=windows GOARCH=amd64 go build -tags matprofile -ldflags="-s -w" -o "${BINARY_NAME}.exe" .
-            ;;
-        macos)
-            echo -e "${BLUE}Building for macOS (Intel)...${NC}"
-            GOOS=darwin GOARCH=amd64 go build -tags matprofile -ldflags="-s -w" -o "${BINARY_NAME}-macos-amd64" .
-            ;;
-        macos-arm64)
-            echo -e "${BLUE}Building for macOS (Apple Silicon)...${NC}"
-            GOOS=darwin GOARCH=arm64 go build -tags matprofile -ldflags="-s -w" -o "${BINARY_NAME}-macos-arm64" .
-            ;;
-        linux)
-            echo -e "${BLUE}Building for Linux...${NC}"
-            GOOS=linux GOARCH=amd64 go build -tags matprofile -ldflags="-s -w" -o "${BINARY_NAME}-linux-amd64" .
-            ;;
-        universal)
-            echo -e "${BLUE}Building universal macOS binary...${NC}"
-            GOOS=darwin GOARCH=arm64 go build -tags matprofile -ldflags="-s -w" -o "${BINARY_NAME}-arm64" .
-            GOOS=darwin GOARCH=amd64 go build -tags matprofile -ldflags="-s -w" -o "${BINARY_NAME}-x86_64" .
-            lipo -create -output "${BINARY_NAME}-macos-universal" "${BINARY_NAME}-arm64" "${BINARY_NAME}-x86_64"
-            rm -f "${BINARY_NAME}-arm64" "${BINARY_NAME}-x86_64"
-            echo -e "${GREEN}Universal binary created: ${BINARY_NAME}-macos-universal${NC}"
-            ;;
-        *)
-            echo -e "${RED}Unknown target: $target${NC}"
-            echo "Available targets: windows, macos, macos-arm64, linux, universal"
-            exit 1
-            ;;
-    esac
-}
-
-main() {
-    case "${1:-}" in
-        build)
-            check_deps
-            build_binary "" "$BINARY_NAME"
-            ;;
-        build-profile)
-            check_deps
-            build_binary "matprofile" "$BINARY_NAME"
-            ;;
-        run)
-            if [ ! -f "$BINARY_NAME" ]; then
-                build_binary "" "$BINARY_NAME"
-            fi
-            ./"$BINARY_NAME"
-            ;;
-        run-profile)
-            echo -e "${YELLOW}Starting with profiling server on :6060${NC}"
-            echo -e "${YELLOW}Memory profiler: http://localhost:6060/debug/pprof/${NC}"
-            echo -e "${YELLOW}Mat profiling: http://localhost:6060/debug/pprof/gocv.io/x/gocv.Mat${NC}"
-            go run -tags matprofile .
-            ;;
-        debug)
-            if [ -z "$2" ]; then
-                echo -e "${RED}Debug type required${NC}"
-                echo "Usage: $0 debug [type]"
-                echo "Types: format, gui, algorithms, memory, triclass, safe, all"
+case "${1:-help}" in
+    "build")
+        check_deps
+        build "${2:-default}"
+        ;;
+    "run")
+        check_deps
+        run_with_env "" "Running ${BINARY_NAME}..."
+        ;;
+    "debug")
+        case "${2:-safe}" in
+            "safe")
+                run_with_env "OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_FORMAT=true" "Running with safe debugging..."
+                ;;
+            "all")
+                run_with_env "OTSU_DEBUG_FORMAT=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_MEMORY=true OTSU_DEBUG_PERFORMANCE=true OTSU_DEBUG_GUI=true OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true" "Running with all debugging..."
+                ;;
+            "format")
+                run_with_env "OTSU_DEBUG_FORMAT=true" "Running with format debugging..."
+                ;;
+            "gui")
+                run_with_env "OTSU_DEBUG_GUI=true" "Running with GUI debugging..."
+                ;;
+            "algorithms")
+                run_with_env "OTSU_DEBUG_ALGORITHMS=true" "Running with algorithm debugging..."
+                ;;
+            *)
+                error "Unknown debug type: ${2}"
                 exit 1
-            fi
-            debug_env=$(setup_debug_env "$2")
-            echo -e "${YELLOW}Running with $2 debugging...${NC}"
-            env $debug_env go run -tags matprofile .
-            ;;
-        test)
-            echo -e "${BLUE}Running tests...${NC}"
-            go test -tags matprofile ./...
-            ;;
-        clean)
-            echo -e "${BLUE}Cleaning build artifacts...${NC}"
-            rm -f "$BINARY_NAME" "${BINARY_NAME}.exe" "${BINARY_NAME}"-*
-            echo -e "${GREEN}Clean complete${NC}"
-            ;;
-        deps)
-            echo -e "${BLUE}Installing dependencies...${NC}"
-            go mod tidy
-            go mod download
-            echo -e "${GREEN}Dependencies installed${NC}"
-            ;;
-        cross)
-            if [ -z "$2" ]; then
-                echo -e "${RED}Target platform required${NC}"
-                echo "Usage: $0 cross [target]"
-                echo "Targets: windows, macos, macos-arm64, linux, universal"
-                exit 1
-            fi
-            check_deps
-            cross_compile "$2"
-            ;;
-        help|--help|-h)
-            print_help
-            ;;
-        "")
-            print_help
-            ;;
-        *)
-            echo -e "${RED}Unknown command: $1${NC}"
-            print_help
-            exit 1
-            ;;
-    esac
-}
-
-main "$@"
+                ;;
+        esac
+        ;;
+    "test")
+        log "Running tests..."
+        go test -tags ${BUILD_TAGS} ./...
+        success "Tests completed"
+        ;;
+    "clean")
+        log "Cleaning build artifacts..."
+        rm -rf "${BUILD_DIR}"
+        rm -f "${BINARY_NAME}" "${BINARY_NAME}.exe" "${BINARY_NAME}"-*
+        success "Clean completed"
+        ;;
+    "deps")
+        log "Installing dependencies..."
+        go mod tidy
+        go mod download
+        success "Dependencies installed"
+        ;;
+    "help"|"--help"|"-h")
+        show_help
+        ;;
+    *)
+        error "Unknown command: $1"
+        show_help
+        exit 1
+        ;;
+esac

@@ -8,54 +8,55 @@ import (
 	"otsu-obliterator/internal/algorithms"
 	"otsu-obliterator/internal/debug"
 	"otsu-obliterator/internal/opencv/memory"
-	"otsu-obliterator/internal/pipeline/stages"
 )
-
-type ImageData struct {
-	Image       interface{}
-	Mat         interface{}
-	Width       int
-	Height      int
-	Channels    int
-	Format      string
-	OriginalURI fyne.URI
-}
 
 type Coordinator struct {
 	mu               sync.RWMutex
 	originalImage    *ImageData
 	processedImage   *ImageData
-	memoryManager    *memory.Manager
-	debugManager     *debug.Manager
+	memoryManager    MemoryManager
+	debugManager     DebugManager
 	algorithmManager *algorithms.Manager
-	loader           *stages.Loader
-	processor        *stages.Processor
-	saver            *stages.Saver
+	loader           ImageLoader
+	processor        ImageProcessor
+	saver            ImageSaver
 }
 
 func NewCoordinator(memMgr *memory.Manager, debugMgr *debug.Manager) *Coordinator {
 	algMgr := algorithms.NewManager()
 	
-	return &Coordinator{
+	coord := &Coordinator{
 		memoryManager:    memMgr,
 		debugManager:     debugMgr,
 		algorithmManager: algMgr,
-		loader:           stages.NewLoader(memMgr, debugMgr),
-		processor:        stages.NewProcessor(memMgr, debugMgr, algMgr),
-		saver:            stages.NewSaver(debugMgr),
 	}
+	
+	// Initialize internal components
+	coord.loader = &imageLoader{
+		memoryManager: memMgr,
+		debugManager:  debugMgr,
+	}
+	
+	coord.saver = &imageSaver{
+		debugManager: debugMgr,
+	}
+	
+	return coord
 }
 
 func (c *Coordinator) LoadImage(reader fyne.URIReadCloser) (*ImageData, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	imageData, err := c.loader.LoadImage(reader)
+	imageData, err := c.loader.LoadFromReader(reader)
 	if err != nil {
 		return nil, err
 	}
 
 	if c.originalImage != nil {
+		if c.originalImage.Mat != nil {
+			c.memoryManager.ReleaseMat(c.originalImage.Mat)
+		}
 		c.originalImage = nil
 	}
 
@@ -71,12 +72,26 @@ func (c *Coordinator) ProcessImage(algorithmName string, params map[string]inter
 		return nil, fmt.Errorf("no image loaded")
 	}
 
-	processedData, err := c.processor.ProcessImage(c.originalImage, algorithmName, params)
+	algorithm, err := c.algorithmManager.GetAlgorithm(algorithmName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get algorithm: %w", err)
+	}
+
+	processor := &imageProcessor{
+		memoryManager:    c.memoryManager,
+		debugManager:     c.debugManager,
+		algorithmManager: c.algorithmManager,
+	}
+
+	processedData, err := processor.ProcessImage(c.originalImage, algorithm, params)
 	if err != nil {
 		return nil, err
 	}
 
 	if c.processedImage != nil {
+		if c.processedImage.Mat != nil {
+			c.memoryManager.ReleaseMat(c.processedImage.Mat)
+		}
 		c.processedImage = nil
 	}
 
@@ -85,7 +100,7 @@ func (c *Coordinator) ProcessImage(algorithmName string, params map[string]inter
 }
 
 func (c *Coordinator) SaveImage(writer fyne.URIWriteCloser, imageData *ImageData) error {
-	return c.saver.SaveImage(writer, imageData)
+	return c.saver.SaveToWriter(writer, imageData, "")
 }
 
 func (c *Coordinator) GetOriginalImage() *ImageData {
@@ -101,11 +116,24 @@ func (c *Coordinator) GetProcessedImage() *ImageData {
 }
 
 func (c *Coordinator) CalculatePSNR(original, processed *ImageData) float64 {
-	// Placeholder implementation
+	// Basic PSNR calculation placeholder
 	return 27.04
 }
 
 func (c *Coordinator) CalculateSSIM(original, processed *ImageData) float64 {
-	// Placeholder implementation
+	// Basic SSIM calculation placeholder
 	return 0.8829
+}
+
+func (c *Coordinator) Cleanup() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	if c.originalImage != nil && c.originalImage.Mat != nil {
+		c.memoryManager.ReleaseMat(c.originalImage.Mat)
+	}
+	
+	if c.processedImage != nil && c.processedImage.Mat != nil {
+		c.memoryManager.ReleaseMat(c.processedImage.Mat)
+	}
 }
