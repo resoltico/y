@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	MinImageWidth  = 640
-	MinImageHeight = 480
+	DefaultImageWidth  = 320
+	DefaultImageHeight = 240
 )
 
 type ImageDisplay struct {
@@ -27,32 +27,31 @@ func NewImageDisplay() *ImageDisplay {
 	originalImage := canvas.NewImageFromImage(nil)
 	originalImage.FillMode = canvas.ImageFillContain
 	originalImage.ScaleMode = canvas.ImageScaleSmooth
-	originalImage.SetMinSize(fyne.NewSize(MinImageWidth, MinImageHeight))
 
 	previewImage := canvas.NewImageFromImage(nil)
 	previewImage.FillMode = canvas.ImageFillContain
 	previewImage.ScaleMode = canvas.ImageScaleSmooth
-	previewImage.SetMinSize(fyne.NewSize(MinImageWidth, MinImageHeight))
 
 	originalScroll := container.NewScroll(originalImage)
-	originalScroll.SetMinSize(fyne.NewSize(MinImageWidth, MinImageHeight))
+	originalScroll.SetMinSize(fyne.NewSize(DefaultImageWidth, DefaultImageHeight))
 
 	previewScroll := container.NewScroll(previewImage)
-	previewScroll.SetMinSize(fyne.NewSize(MinImageWidth, MinImageHeight))
+	previewScroll.SetMinSize(fyne.NewSize(DefaultImageWidth, DefaultImageHeight))
 
-	originalContainer := container.NewVBox(
+	originalContainer := container.NewMax(originalScroll)
+	originalWithLabel := container.NewVBox(
 		widget.NewRichTextFromMarkdown("**Original**"),
-		originalScroll,
+		originalContainer,
 	)
 
-	previewContainer := container.NewVBox(
+	previewContainer := container.NewMax(previewScroll)
+	previewWithLabel := container.NewVBox(
 		widget.NewRichTextFromMarkdown("**Preview**"),
-		previewScroll,
+		previewContainer,
 	)
 
-	splitContainer := container.NewHSplit(originalContainer, previewContainer)
+	splitContainer := container.NewHSplit(originalWithLabel, previewWithLabel)
 	splitContainer.SetOffset(0.5)
-	splitContainer.Resize(fyne.NewSize(MinImageWidth*2, MinImageHeight+60))
 
 	return &ImageDisplay{
 		container:      splitContainer,
@@ -95,7 +94,7 @@ func (id *ImageDisplay) GetMinimumSize() fyne.Size {
 	padding := float32(20)
 
 	return fyne.Size{
-		Width:  MinImageWidth*2 + padding,
-		Height: MinImageHeight + labelHeight + padding,
+		Width:  DefaultImageWidth*2 + padding,
+		Height: DefaultImageHeight + labelHeight + padding,
 	}
 }

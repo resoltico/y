@@ -56,10 +56,10 @@ func NewManager(window fyne.Window, debugCoord debug.Coordinator) (*Manager, err
 	manager.setupInitialParameters()
 
 	logger.Info("GUIManager", "initialized with BorderLayout", map[string]interface{}{
-		"left_panel_width":  LeftPanelMinWidth,
-		"right_panel_width": RightPanelMinWidth,
-		"min_image_width":   components.MinImageWidth,
-		"min_image_height":  components.MinImageHeight,
+		"left_panel_width":     LeftPanelMinWidth,
+		"right_panel_width":    RightPanelMinWidth,
+		"default_image_width":  components.DefaultImageWidth,
+		"default_image_height": components.DefaultImageHeight,
 	})
 
 	return manager, nil
