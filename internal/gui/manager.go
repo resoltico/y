@@ -5,6 +5,7 @@ import (
 
 	"otsu-obliterator/internal/debug"
 	"otsu-obliterator/internal/gui/components"
+	"otsu-obliterator/internal/gui/layout"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -13,7 +14,8 @@ import (
 
 type Manager struct {
 	window     fyne.Window
-	debugMgr   *debug.Manager
+	debugCoord debug.Coordinator
+	logger     debug.Logger
 	isShutdown bool
 
 	// Components
@@ -21,6 +23,10 @@ type Manager struct {
 	controlsPanel   *components.ControlsPanel
 	parametersPanel *components.ParametersPanel
 	statusBar       *components.StatusBar
+
+	// Layouts
+	mainLayout      *layout.FixedColumnLayout
+	parameterLayout *layout.StableParameterLayout
 
 	// Event handlers
 	imageLoadHandler       func()
@@ -30,31 +36,50 @@ type Manager struct {
 	generatePreviewHandler func()
 }
 
-func NewManager(window fyne.Window, debugMgr *debug.Manager) (*Manager, error) {
+func NewManager(window fyne.Window, debugCoord debug.Coordinator) (*Manager, error) {
+	logger := debugCoord.Logger()
+
 	imageDisplay := components.NewImageDisplay()
 	controlsPanel := components.NewControlsPanel()
 	parametersPanel := components.NewParametersPanel()
 	statusBar := components.NewStatusBar()
 
+	// Define column widths for stability
+	columnWidths := []float32{280, 640, 320} // Controls, Images, Parameters
+	mainLayout := layout.NewFixedColumnLayout(columnWidths, 10)
+
+	// Parameter layout with stable sections
+	parameterLayout := layout.NewStableParameterLayout(320, 5)
+	parameterLayout.RegisterSection("quality", 80)
+	parameterLayout.RegisterSection("parameters", 400)
+
 	manager := &Manager{
 		window:          window,
-		debugMgr:        debugMgr,
+		debugCoord:      debugCoord,
+		logger:          logger,
 		isShutdown:      false,
 		imageDisplay:    imageDisplay,
 		controlsPanel:   controlsPanel,
 		parametersPanel: parametersPanel,
 		statusBar:       statusBar,
+		mainLayout:      mainLayout,
+		parameterLayout: parameterLayout,
 	}
 
-	// Set up initial algorithm selection
 	manager.setupInitialState()
+
+	logger.Info("GUIManager", "initialized with stable layout", map[string]interface{}{
+		"left_width":    230,
+		"right_width":   270,
+		"right_padding": 10,
+	})
 
 	return manager, nil
 }
 
 func (m *Manager) setupInitialState() {
 	// Initialize with 2D Otsu algorithm pre-selected
-	m.parametersPanel.UpdateParameters("2D Otsu", map[string]interface{}{
+	defaultParams := map[string]interface{}{
 		"quality":                    "Fast",
 		"window_size":                7,
 		"histogram_bins":             64,
@@ -64,37 +89,38 @@ func (m *Manager) setupInitialState() {
 		"use_log_histogram":          false,
 		"normalize_histogram":        true,
 		"apply_contrast_enhancement": false,
+	}
+
+	m.parametersPanel.UpdateParameters("2D Otsu", defaultParams)
+
+	m.logger.Debug("GUIManager", "initial state configured", map[string]interface{}{
+		"algorithm": "2D Otsu",
+		"params":    len(defaultParams),
 	})
 }
 
 func (m *Manager) GetMainContainer() *fyne.Container {
-	// Left panel: Controls
-	leftPanel := container.NewVBox(
-		m.controlsPanel.GetContainer(),
-	)
-	leftPanel.Resize(fyne.NewSize(280, 0))
-
-	// Right panel: Parameters with quality section at top
-	rightPanel := container.NewVBox(
-		m.parametersPanel.GetContainer(),
-	)
-	rightPanel.Resize(fyne.NewSize(320, 0))
-
-	// Center: Image display
+	// Create panels
+	leftPanel := container.NewVBox(m.controlsPanel.GetContainer())
+	rightPanel := container.New(m.parameterLayout, m.parametersPanel.GetContainer())
 	centerPanel := m.imageDisplay.GetContainer()
 
-	// Assemble three-column layout
-	centerRightSplit := container.NewHSplit(centerPanel, rightPanel)
-	centerRightSplit.SetOffset(0.75) // 75% for images, 25% for parameters
+	// Add 1px spacer for right padding
+	spacer := container.NewWithoutLayout()
+	spacer.Resize(fyne.NewSize(1, 0))
 
-	mainLayout := container.NewHSplit(leftPanel, centerRightSplit)
-	mainLayout.SetOffset(0.2) // 20% for controls, 80% for center+parameters
+	rightWithPadding := container.NewHBox(rightPanel, spacer)
+
+	mainContent := container.NewBorder(nil, nil,
+		leftPanel,        // Left: no padding
+		rightWithPadding, // Right: with 1px padding
+		centerPanel)      // Center: remaining space
 
 	return container.NewBorder(
 		nil,                        // Top
 		m.statusBar.GetContainer(), // Bottom
-		nil, nil,                   // Left/right
-		mainLayout, // Center
+		nil, nil,                   // Left/right borders
+		mainContent, // Center
 	)
 }
 
@@ -115,43 +141,69 @@ func (m *Manager) SetImageSaveHandler(handler func()) {
 func (m *Manager) SetAlgorithmChangeHandler(handler func(string)) {
 	m.algorithmChangeHandler = handler
 	m.controlsPanel.SetAlgorithmChangeHandler(func(algorithm string) {
+		m.logger.Debug("GUIManager", "algorithm change requested", map[string]interface{}{
+			"algorithm": algorithm,
+		})
+
 		handler(algorithm)
-		// Update parameters panel when algorithm changes
 		m.requestParameterUpdate(algorithm)
 	})
 }
 
 func (m *Manager) SetParameterChangeHandler(handler func(string, interface{})) {
 	m.parameterChangeHandler = handler
-	m.parametersPanel.SetParameterChangeHandler(handler)
+	m.parametersPanel.SetParameterChangeHandler(func(name string, value interface{}) {
+		m.logger.Debug("GUIManager", "parameter change", map[string]interface{}{
+			"parameter": name,
+			"value":     value,
+		})
+
+		handler(name, value)
+	})
 }
 
 func (m *Manager) SetGeneratePreviewHandler(handler func()) {
 	m.generatePreviewHandler = handler
-	m.controlsPanel.SetGeneratePreviewHandler(handler)
+	m.controlsPanel.SetGeneratePreviewHandler(func() {
+		m.logger.Info("GUIManager", "preview generation started", nil)
+		handler()
+	})
 }
 
 func (m *Manager) SetOriginalImage(img image.Image) {
 	fyne.Do(func() {
 		m.imageDisplay.SetOriginalImage(img)
+		m.logger.Debug("GUIManager", "original image set", map[string]interface{}{
+			"bounds": img.Bounds(),
+		})
 	})
 }
 
 func (m *Manager) SetPreviewImage(img image.Image) {
 	fyne.Do(func() {
 		m.imageDisplay.SetPreviewImage(img)
+		m.logger.Debug("GUIManager", "preview image set", map[string]interface{}{
+			"bounds": img.Bounds(),
+		})
 	})
 }
 
 func (m *Manager) UpdateParameterPanel(algorithm string, params map[string]interface{}) {
 	fyne.Do(func() {
 		m.parametersPanel.UpdateParameters(algorithm, params)
+		m.logger.Debug("GUIManager", "parameter panel updated", map[string]interface{}{
+			"algorithm":   algorithm,
+			"param_count": len(params),
+		})
 	})
 }
 
 func (m *Manager) UpdateStatus(status string) {
 	fyne.Do(func() {
 		m.statusBar.SetStatus(status)
+		m.logger.Debug("GUIManager", "status updated", map[string]interface{}{
+			"status": status,
+		})
 	})
 }
 
@@ -164,11 +216,18 @@ func (m *Manager) UpdateProgress(progress float64) {
 func (m *Manager) UpdateMetrics(psnr, ssim float64) {
 	fyne.Do(func() {
 		m.statusBar.SetMetrics(psnr, ssim)
+		m.logger.Debug("GUIManager", "metrics updated", map[string]interface{}{
+			"psnr": psnr,
+			"ssim": ssim,
+		})
 	})
 }
 
 func (m *Manager) ShowError(title string, err error) {
-	m.debugMgr.LogError("GUIManager", err)
+	m.logger.Error("GUIManager", err, map[string]interface{}{
+		"title": title,
+	})
+
 	fyne.Do(func() {
 		dialog.ShowError(err, m.window)
 	})
@@ -187,4 +246,6 @@ func (m *Manager) Shutdown() {
 	}
 
 	m.isShutdown = true
+
+	m.logger.Info("GUIManager", "shutdown initiated", nil)
 }

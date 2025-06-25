@@ -3,96 +3,102 @@ package memory
 import (
 	"fmt"
 	"sync"
-	"time"
+
+	"otsu-obliterator/internal/opencv/safe"
 
 	"gocv.io/x/gocv"
-	"otsu-obliterator/internal/debug"
-	"otsu-obliterator/internal/opencv/safe"
 )
 
+type Logger interface {
+	Debug(component string, message string, fields map[string]interface{})
+	Info(component string, message string, fields map[string]interface{})
+	Error(component string, err error, fields map[string]interface{})
+}
+
+type MemoryTracker interface {
+	TrackAllocation(ptr uintptr, size int64, tag string)
+	TrackDeallocation(ptr uintptr, tag string)
+}
+
 type Manager struct {
-	pools       map[PoolKey]*Pool
-	allocations map[uint64]*AllocationRecord
-	mu          sync.RWMutex
-	stats       *Stats
-	debugMgr    *debug.Manager
+	pools      map[PoolKey]*Pool
+	mu         sync.RWMutex
+	memTracker MemoryTracker
+	logger     Logger
+	maxMemory  int64
+	usedMemory int64
 }
 
 type PoolKey struct {
-	Rows     int
-	Cols     int
-	MatType  gocv.MatType
+	Rows    int
+	Cols    int
+	MatType gocv.MatType
 }
 
-type AllocationRecord struct {
-	Mat        *safe.Mat
-	CreatedAt  time.Time
-	StackTrace string
-	Size       int64
-}
-
-type Stats struct {
-	TotalAllocated int64
-	TotalReleased  int64
-	ActiveMats     int64
-	PoolHits       int64
-	PoolMisses     int64
-	MaxAllowed     int64
-}
-
-func NewManager(debugMgr *debug.Manager) *Manager {
+func NewManager(logger Logger, memTracker MemoryTracker) *Manager {
 	return &Manager{
-		pools:       make(map[PoolKey]*Pool),
-		allocations: make(map[uint64]*AllocationRecord),
-		stats: &Stats{
-			MaxAllowed: 2 * 1024 * 1024 * 1024, // 2GB limit
-		},
-		debugMgr: debugMgr,
+		pools:      make(map[PoolKey]*Pool),
+		memTracker: memTracker,
+		logger:     logger,
+		maxMemory:  2 * 1024 * 1024 * 1024, // 2GB limit
 	}
 }
 
-func (m *Manager) GetMat(rows, cols int, matType gocv.MatType) (*safe.Mat, error) {
+func (m *Manager) GetMat(rows, cols int, matType gocv.MatType, tag string) (*safe.Mat, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.stats.TotalAllocated-m.stats.TotalReleased > m.stats.MaxAllowed {
-		return nil, fmt.Errorf("memory limit exceeded: %d bytes allocated", 
-			m.stats.TotalAllocated-m.stats.TotalReleased)
+	size := int64(rows * cols * m.getMatTypeSize(matType))
+
+	if m.usedMemory+size > m.maxMemory {
+		return nil, fmt.Errorf("memory limit exceeded: would use %d bytes, limit is %d",
+			m.usedMemory+size, m.maxMemory)
 	}
 
 	key := PoolKey{Rows: rows, Cols: cols, MatType: matType}
-	
+
 	if pool, exists := m.pools[key]; exists {
 		if mat := pool.Get(); mat != nil {
-			m.stats.PoolHits++
-			m.debugMgr.LogInfo("MemoryManager", "Reused Mat from pool")
+			if m.logger != nil {
+				m.logger.Debug("MemoryManager", "reused Mat from pool", map[string]interface{}{
+					"tag":  tag,
+					"size": size,
+				})
+			}
 			return mat, nil
 		}
 	}
 
-	m.stats.PoolMisses++
-	mat, err := safe.NewMat(rows, cols, matType)
+	mat, err := safe.NewMatWithTracker(rows, cols, matType, m, tag)
 	if err != nil {
 		return nil, err
 	}
 
-	size := int64(rows * cols * m.getMatTypeSize(matType))
-	record := &AllocationRecord{
-		Mat:        mat,
-		CreatedAt:  time.Now(),
-		StackTrace: m.captureStackTrace(),
-		Size:       size,
+	m.usedMemory += size
+
+	if m.logger != nil {
+		m.logger.Debug("MemoryManager", "created new Mat", map[string]interface{}{
+			"tag":  tag,
+			"size": size,
+		})
 	}
 
-	m.allocations[mat.ID()] = record
-	m.stats.TotalAllocated += size
-	m.stats.ActiveMats++
-
-	m.debugMgr.LogInfo("MemoryManager", "Created new Mat")
 	return mat, nil
 }
 
-func (m *Manager) ReleaseMat(mat *safe.Mat) {
+func (m *Manager) TrackAllocation(ptr uintptr, size int64, tag string) {
+	if m.memTracker != nil {
+		m.memTracker.TrackAllocation(ptr, size, tag)
+	}
+}
+
+func (m *Manager) TrackDeallocation(ptr uintptr, tag string) {
+	if m.memTracker != nil {
+		m.memTracker.TrackDeallocation(ptr, tag)
+	}
+}
+
+func (m *Manager) ReleaseMat(mat *safe.Mat, tag string) {
 	if mat == nil {
 		return
 	}
@@ -100,13 +106,7 @@ func (m *Manager) ReleaseMat(mat *safe.Mat) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	id := mat.ID()
-	record, exists := m.allocations[id]
-	if !exists {
-		m.debugMgr.LogWarning("MemoryManager", "Attempting to release untracked Mat")
-		mat.Close()
-		return
-	}
+	size := int64(mat.Rows() * mat.Cols() * m.getMatTypeSize(mat.Type()))
 
 	key := PoolKey{
 		Rows:    mat.Rows(),
@@ -116,37 +116,52 @@ func (m *Manager) ReleaseMat(mat *safe.Mat) {
 
 	if pool, exists := m.pools[key]; exists {
 		if pool.Put(mat) {
-			m.debugMgr.LogInfo("MemoryManager", "Added Mat to pool")
-			delete(m.allocations, id)
-			m.stats.TotalReleased += record.Size
-			m.stats.ActiveMats--
+			if m.logger != nil {
+				m.logger.Debug("MemoryManager", "returned Mat to pool", map[string]interface{}{
+					"tag":  tag,
+					"size": size,
+				})
+			}
+			m.usedMemory -= size
 			return
 		}
 	} else {
 		pool = NewPool(5) // Max 5 mats per pool
 		m.pools[key] = pool
 		if pool.Put(mat) {
-			m.debugMgr.LogInfo("MemoryManager", "Created new pool for Mat")
-			delete(m.allocations, id)
-			m.stats.TotalReleased += record.Size
-			m.stats.ActiveMats--
+			if m.logger != nil {
+				m.logger.Debug("MemoryManager", "created new pool and stored Mat", map[string]interface{}{
+					"tag":  tag,
+					"size": size,
+				})
+			}
+			m.usedMemory -= size
 			return
 		}
 	}
 
 	mat.Close()
-	delete(m.allocations, id)
-	m.stats.TotalReleased += record.Size
-	m.stats.ActiveMats--
-	m.debugMgr.LogInfo("MemoryManager", "Closed Mat (pool full)")
+	m.usedMemory -= size
+
+	if m.logger != nil {
+		m.logger.Debug("MemoryManager", "closed Mat directly", map[string]interface{}{
+			"tag":    tag,
+			"size":   size,
+			"reason": "pool_full",
+		})
+	}
 }
 
-func (m *Manager) GetStats() *Stats {
+func (m *Manager) GetUsedMemory() int64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
-	statsCopy := *m.stats
-	return &statsCopy
+	return m.usedMemory
+}
+
+func (m *Manager) GetMaxMemory() int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.maxMemory
 }
 
 func (m *Manager) Cleanup() {
@@ -159,14 +174,13 @@ func (m *Manager) Cleanup() {
 		delete(m.pools, key)
 	}
 
-	for id, record := range m.allocations {
-		record.Mat.Close()
-		delete(m.allocations, id)
-		matCount++
+	if m.logger != nil {
+		m.logger.Info("MemoryManager", "cleanup completed", map[string]interface{}{
+			"mats_cleaned": matCount,
+		})
 	}
 
-	m.debugMgr.LogInfo("MemoryManager", 
-		fmt.Sprintf("Cleaned up %d Mats", matCount))
+	m.usedMemory = 0
 }
 
 func (m *Manager) getMatTypeSize(matType gocv.MatType) int {
@@ -192,9 +206,4 @@ func (m *Manager) getMatTypeSize(matType gocv.MatType) int {
 	default:
 		return 1
 	}
-}
-
-func (m *Manager) captureStackTrace() string {
-	// Simplified stack trace capture for debugging
-	return "stack trace capture not implemented"
 }

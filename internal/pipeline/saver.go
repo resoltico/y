@@ -12,13 +12,17 @@ import (
 )
 
 type imageSaver struct {
-	debugManager DebugManager
+	logger        Logger
+	timingTracker TimingTracker
 }
 
 func (s *imageSaver) SaveToWriter(writer io.Writer, imageData *ImageData, format string) error {
 	if imageData == nil {
 		return fmt.Errorf("no image data to save")
 	}
+
+	ctx := s.timingTracker.StartTiming("save_to_writer")
+	defer s.timingTracker.EndTiming(ctx)
 
 	img, ok := imageData.Image.(image.Image)
 	if !ok {
@@ -35,7 +39,8 @@ func (s *imageSaver) SaveToWriter(writer io.Writer, imageData *ImageData, format
 			case ".png":
 				saveFormat = "png"
 			default:
-				saveFormat = imageData.Format
+				// No extension provided, default to PNG
+				saveFormat = "png"
 			}
 		} else {
 			saveFormat = imageData.Format
@@ -46,21 +51,39 @@ func (s *imageSaver) SaveToWriter(writer io.Writer, imageData *ImageData, format
 		saveFormat = "png"
 	}
 
-	s.debugManager.LogInfo("ImageSaver", 
-		fmt.Sprintf("Saving image as %s format", saveFormat))
+	s.logger.Debug("ImageSaver", "saving image", map[string]interface{}{
+		"format": saveFormat,
+		"width":  imageData.Width,
+		"height": imageData.Height,
+	})
 
+	var err error
 	switch saveFormat {
 	case "jpeg":
-		return jpeg.Encode(writer, img, &jpeg.Options{Quality: 95})
+		err = jpeg.Encode(writer, img, &jpeg.Options{Quality: 95})
 	case "png":
-		return png.Encode(writer, img)
+		err = png.Encode(writer, img)
 	case "tiff", "bmp":
-		s.debugManager.LogWarning("ImageSaver", 
-			fmt.Sprintf("%s encoding not supported, saving as PNG", strings.ToUpper(saveFormat)))
-		return png.Encode(writer, img)
+		s.logger.Warning("ImageSaver", "format not supported, using PNG", map[string]interface{}{
+			"requested_format": strings.ToUpper(saveFormat),
+		})
+		err = png.Encode(writer, img)
 	default:
-		return png.Encode(writer, img)
+		err = png.Encode(writer, img)
 	}
+
+	if err != nil {
+		s.logger.Error("ImageSaver", err, map[string]interface{}{
+			"format": saveFormat,
+		})
+		return err
+	}
+
+	s.logger.Info("ImageSaver", "image saved", map[string]interface{}{
+		"format": saveFormat,
+	})
+
+	return nil
 }
 
 func (s *imageSaver) SaveToPath(path string, imageData *ImageData) error {

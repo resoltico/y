@@ -4,21 +4,34 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	"gocv.io/x/gocv"
 )
 
+// MemoryTracker interface to avoid import cycles
+type MemoryTracker interface {
+	TrackAllocation(ptr uintptr, size int64, tag string)
+	TrackDeallocation(ptr uintptr, tag string)
+}
+
 type Mat struct {
-	mat      gocv.Mat
-	isValid  int32
-	refCount int32
-	mu       sync.RWMutex
-	id       uint64
+	mat        gocv.Mat
+	isValid    int32
+	refCount   int32
+	mu         sync.RWMutex
+	id         uint64
+	memTracker MemoryTracker
+	tag        string
 }
 
 var nextMatID uint64
 
 func NewMat(rows, cols int, matType gocv.MatType) (*Mat, error) {
+	return NewMatWithTracker(rows, cols, matType, nil, "")
+}
+
+func NewMatWithTracker(rows, cols int, matType gocv.MatType, memTracker MemoryTracker, tag string) (*Mat, error) {
 	if rows <= 0 || cols <= 0 {
 		return nil, fmt.Errorf("invalid dimensions: %dx%d", cols, rows)
 	}
@@ -30,16 +43,28 @@ func NewMat(rows, cols int, matType gocv.MatType) (*Mat, error) {
 	}
 
 	safeMat := &Mat{
-		mat:      mat,
-		isValid:  1,
-		refCount: 1,
-		id:       atomic.AddUint64(&nextMatID, 1),
+		mat:        mat,
+		isValid:    1,
+		refCount:   1,
+		id:         atomic.AddUint64(&nextMatID, 1),
+		memTracker: memTracker,
+		tag:        tag,
+	}
+
+	if memTracker != nil {
+		size := int64(rows * cols * getMatTypeSize(matType))
+		ptr := uintptr(unsafe.Pointer(&mat))
+		memTracker.TrackAllocation(ptr, size, tag)
 	}
 
 	return safeMat, nil
 }
 
 func NewMatFromMat(srcMat gocv.Mat) (*Mat, error) {
+	return NewMatFromMatWithTracker(srcMat, nil, "")
+}
+
+func NewMatFromMatWithTracker(srcMat gocv.Mat, memTracker MemoryTracker, tag string) (*Mat, error) {
 	if srcMat.Empty() {
 		return nil, fmt.Errorf("source Mat is empty")
 	}
@@ -55,10 +80,18 @@ func NewMatFromMat(srcMat gocv.Mat) (*Mat, error) {
 	}
 
 	safeMat := &Mat{
-		mat:      clonedMat,
-		isValid:  1,
-		refCount: 1,
-		id:       atomic.AddUint64(&nextMatID, 1),
+		mat:        clonedMat,
+		isValid:    1,
+		refCount:   1,
+		id:         atomic.AddUint64(&nextMatID, 1),
+		memTracker: memTracker,
+		tag:        tag,
+	}
+
+	if memTracker != nil {
+		size := int64(srcMat.Rows() * srcMat.Cols() * getMatTypeSize(srcMat.Type()))
+		ptr := uintptr(unsafe.Pointer(&clonedMat))
+		memTracker.TrackAllocation(ptr, size, tag)
 	}
 
 	return safeMat, nil
@@ -135,7 +168,7 @@ func (sm *Mat) Clone() (*Mat, error) {
 		return nil, fmt.Errorf("cannot clone empty Mat")
 	}
 
-	return NewMatFromMat(sm.mat)
+	return NewMatFromMatWithTracker(sm.mat, sm.memTracker, sm.tag+"_clone")
 }
 
 func (sm *Mat) CopyTo(dst *Mat) error {
@@ -261,8 +294,38 @@ func (sm *Mat) Close() {
 	defer sm.mu.Unlock()
 
 	if atomic.CompareAndSwapInt32(&sm.isValid, 1, 0) {
+		if sm.memTracker != nil {
+			ptr := uintptr(unsafe.Pointer(&sm.mat))
+			sm.memTracker.TrackDeallocation(ptr, sm.tag)
+		}
+
 		if !sm.mat.Empty() {
 			sm.mat.Close()
 		}
+	}
+}
+
+func getMatTypeSize(matType gocv.MatType) int {
+	switch matType {
+	case gocv.MatTypeCV8UC1:
+		return 1
+	case gocv.MatTypeCV8UC3:
+		return 3
+	case gocv.MatTypeCV8UC4:
+		return 4
+	case gocv.MatTypeCV16UC1:
+		return 2
+	case gocv.MatTypeCV16UC3:
+		return 6
+	case gocv.MatTypeCV16UC4:
+		return 8
+	case gocv.MatTypeCV32FC1:
+		return 4
+	case gocv.MatTypeCV32FC3:
+		return 12
+	case gocv.MatTypeCV32FC4:
+		return 16
+	default:
+		return 1
 	}
 }

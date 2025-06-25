@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+
 	"otsu-obliterator/internal/debug"
 	"otsu-obliterator/internal/gui"
 	"otsu-obliterator/internal/opencv/memory"
@@ -24,7 +26,7 @@ type Application struct {
 	guiManager    *gui.Manager
 	coordinator   pipeline.ProcessingCoordinator
 	memoryManager *memory.Manager
-	debugManager  *debug.Manager
+	debugCoord    debug.Coordinator
 	lifecycle     *Lifecycle
 }
 
@@ -34,16 +36,27 @@ func NewApplication() (*Application, error) {
 	window.Resize(fyne.NewSize(WindowWidth, WindowHeight))
 	window.SetMaster() // Ensures app exits when main window closes
 
-	debugManager := debug.NewManager()
-	memoryManager := memory.NewManager(debugManager)
-	coordinator := pipeline.NewCoordinator(memoryManager, debugManager)
+	// Initialize debug system based on environment
+	debugConfig := getDebugConfig()
+	debugCoord := debug.NewCoordinator(debugConfig)
 
-	guiManager, err := gui.NewManager(window, debugManager)
+	logger := debugCoord.Logger()
+	memTracker := debugCoord.MemoryTracker()
+
+	logger.Info("Application", "starting application", map[string]interface{}{
+		"version":       AppVersion,
+		"debug_enabled": debugConfig.EnableLogging,
+	})
+
+	memoryManager := memory.NewManager(logger, memTracker)
+	coordinator := pipeline.NewCoordinator(memoryManager, debugCoord)
+
+	guiManager, err := gui.NewManager(window, debugCoord)
 	if err != nil {
 		return nil, err
 	}
 
-	lifecycle := NewLifecycle(memoryManager, debugManager, guiManager)
+	lifecycle := NewLifecycle(memoryManager, debugCoord, guiManager)
 
 	application := &Application{
 		fyneApp:       fyneApp,
@@ -51,7 +64,7 @@ func NewApplication() (*Application, error) {
 		guiManager:    guiManager,
 		coordinator:   coordinator,
 		memoryManager: memoryManager,
-		debugManager:  debugManager,
+		debugCoord:    debugCoord,
 		lifecycle:     lifecycle,
 	}
 
@@ -59,11 +72,12 @@ func NewApplication() (*Application, error) {
 		return nil, err
 	}
 
+	logger.Info("Application", "initialization complete", nil)
 	return application, nil
 }
 
 func (a *Application) setupHandlers() error {
-	handlers := NewHandlers(a.coordinator, a.guiManager, a.debugManager)
+	handlers := NewHandlers(a.coordinator, a.guiManager, a.debugCoord)
 
 	a.guiManager.SetImageLoadHandler(handlers.HandleImageLoad)
 	a.guiManager.SetImageSaveHandler(handlers.HandleImageSave)
@@ -75,13 +89,49 @@ func (a *Application) setupHandlers() error {
 }
 
 func (a *Application) Run() error {
+	logger := a.debugCoord.Logger()
+
 	a.window.SetCloseIntercept(func() {
+		logger.Info("Application", "shutdown requested", nil)
 		a.lifecycle.Shutdown()
 		a.window.Close()
 	})
 
 	a.window.SetContent(a.guiManager.GetMainContainer())
 	a.window.Show()
+
+	logger.Info("Application", "GUI displayed", nil)
 	a.fyneApp.Run()
+
 	return nil
+}
+
+func getDebugConfig() debug.Config {
+	// Check environment variables for debug configuration
+	if os.Getenv("OTSU_DEBUG_ALL") == "true" {
+		return debug.DefaultConfig()
+	}
+
+	if os.Getenv("OTSU_PRODUCTION") == "true" {
+		return debug.ProductionConfig()
+	}
+
+	// Default development configuration
+	config := debug.DefaultConfig()
+
+	// Override specific settings based on environment
+	if os.Getenv("OTSU_DEBUG_MEMORY") == "true" {
+		config.EnableMemoryTracking = true
+		config.EnableStackTraces = true
+	}
+
+	if os.Getenv("OTSU_DEBUG_FILES") == "true" {
+		config.EnableFileTracking = true
+	}
+
+	if os.Getenv("OTSU_JSON_LOGS") == "true" {
+		config.UseJSONLogging = true
+	}
+
+	return config
 }
