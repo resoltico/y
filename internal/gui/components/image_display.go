@@ -43,8 +43,7 @@ func NewImageDisplay() *ImageDisplay {
 		previewImage,
 	)
 
-	splitContainer := container.NewHSplit(originalContainer, previewContainer)
-	splitContainer.SetOffset(0.5)
+	splitContainer := NewHiddenSplit(originalContainer, previewContainer)
 
 	return &ImageDisplay{
 		container:     splitContainer,
@@ -77,4 +76,12 @@ func (id *ImageDisplay) SetPreviewImage(img image.Image) {
 
 	id.previewImage.Image = img
 	id.previewImage.Refresh()
+}
+
+// GetSplit returns the HiddenSplit container for external access
+func (id *ImageDisplay) GetSplit() *HiddenSplit {
+	if split, ok := id.container.(*HiddenSplit); ok {
+		return split
+	}
+	return nil
 }

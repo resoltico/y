@@ -48,7 +48,7 @@ func NewManager(window fyne.Window, debugCoord debug.Coordinator) (*Manager, err
 
 	manager.setupInitialParameters()
 
-	logger.Info("GUIManager", "initialized with synchronized layout", map[string]interface{}{
+	logger.Info("GUIManager", "initialized with border layout", map[string]interface{}{
 		"image_width":  components.ImageAreaWidth,
 		"image_height": components.ImageAreaHeight,
 	})
@@ -73,32 +73,9 @@ func (m *Manager) setupInitialParameters() {
 }
 
 func (m *Manager) GetMainContainer() *fyne.Container {
-	// Create responsive toolbar with proper positioning
-	leftSection := container.NewHBox(
-		m.toolbar.LoadButton,
-		m.toolbar.SaveButton,
-	)
-
-	centerSection := container.NewHBox(
-		m.toolbar.AlgorithmGroup,
-		container.NewCenter(m.toolbar.GenerateButton),
-		m.toolbar.StatusGroup,
-	)
-
-	rightSection := container.NewHBox(
-		m.toolbar.MetricsLabel,
-	)
-
-	responsiveToolbar := container.NewBorder(
-		nil, nil,
-		leftSection,
-		rightSection,
-		centerSection,
-	)
-
 	return container.NewVBox(
 		m.imageDisplay.GetContainer(),
-		responsiveToolbar,
+		m.toolbar.GetContainer(),
 		m.parametersSection.GetContainer(),
 	)
 }

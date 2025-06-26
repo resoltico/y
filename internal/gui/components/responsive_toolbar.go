@@ -2,8 +2,10 @@ package components
 
 import (
 	"fmt"
+	"image/color"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 )
@@ -33,23 +35,30 @@ func NewResponsiveToolbar() *ResponsiveToolbar {
 }
 
 func (rt *ResponsiveToolbar) setupToolbar() {
+	// Create toolbar background
+	background := canvas.NewRectangle(color.RGBA{R: 250, G: 249, B: 245, A: 255})
+
 	// Left section: Load/Save buttons
 	rt.LoadButton = widget.NewButton("Load", rt.onImageLoad)
 	rt.SaveButton = widget.NewButton("Save", rt.onImageSave)
 	leftSection := container.NewHBox(rt.LoadButton, rt.SaveButton)
 
-	// Algorithm section (center-left, aligned to Original image)
+	// Algorithm section with minimal spacing
 	algorithmLabel := widget.NewLabel("Algorithm:")
 	rt.algorithmRadio = widget.NewRadioGroup([]string{"2D Otsu", "Iterative Triclass"}, rt.onAlgorithmSelected)
 	rt.algorithmRadio.SetSelected("2D Otsu")
 	rt.algorithmRadio.Horizontal = true
-	rt.AlgorithmGroup = container.NewHBox(algorithmLabel, rt.algorithmRadio)
 
-	// Generate button (center, aligned to split divider)
+	// Use BorderLayout to control spacing more precisely
+	rt.AlgorithmGroup = container.NewBorder(
+		nil, nil, algorithmLabel, nil, rt.algorithmRadio,
+	)
+
+	// Generate button
 	rt.GenerateButton = widget.NewButton("Generate", rt.onGeneratePreview)
 	rt.GenerateButton.Importance = widget.HighImportance
 
-	// Status section (center-right, aligned to Preview image)
+	// Status section
 	rt.statusLabel = widget.NewLabel("Ready")
 	rt.progressLabel = widget.NewLabel("")
 	rt.StatusGroup = container.NewHBox(rt.statusLabel, rt.progressLabel)
@@ -58,19 +67,25 @@ func (rt *ResponsiveToolbar) setupToolbar() {
 	rt.MetricsLabel = widget.NewLabel("PSNR: -- | SSIM: --")
 	rightSection := container.NewHBox(rt.MetricsLabel)
 
-	// Create responsive layout using Border container
-	rt.container = container.NewBorder(
-		nil, nil,
-		leftSection,  // Left: Load/Save
-		rightSection, // Right: Metrics
-		container.NewHBox( // Center: Algorithm, Generate, Status
-			rt.AlgorithmGroup,
-			widget.NewSeparator(),
-			rt.GenerateButton,
-			widget.NewSeparator(),
-			rt.StatusGroup,
-		),
+	// Create center section with all controls
+	centerSection := container.NewHBox(
+		rt.AlgorithmGroup,
+		widget.NewSeparator(),
+		rt.GenerateButton,
+		widget.NewSeparator(),
+		rt.StatusGroup,
 	)
+
+	// Create main toolbar container using Border layout
+	toolbarContent := container.NewBorder(
+		nil, nil,
+		leftSection,
+		rightSection,
+		centerSection,
+	)
+
+	// Layer background and content
+	rt.container = container.NewStack(background, toolbarContent)
 }
 
 func (rt *ResponsiveToolbar) GetContainer() *fyne.Container {
