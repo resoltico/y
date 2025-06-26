@@ -1,0 +1,49 @@
+[3:28:59 PM] % ./build.sh debug memory
+[15:28:59] Checking dependencies...
+✓ Dependencies checked
+[15:28:59] Running with memory debugging and MatProfile...
+# otsu-obliterator/cmd/otsu-obliterator
+ld: warning: ignoring duplicate libraries: '-lobjc'
+3:29PM INF starting application component=Application log_level=debug version=1.0.0 window_height=700 window_width=1100
+3:29PM INF initialized component=PipelineCoordinator
+3:29PM DBG parameter updated algorithm="2D Otsu" component=Controller parameter=neighbourhood_metric value=mean
+3:29PM DBG parameter updated algorithm="2D Otsu" component=Controller parameter=normalize_histogram value=true
+3:29PM INF initialized with MVC pattern component=GUIManager window_title="Otsu Obliterator"
+3:29PM DBG parameter updated algorithm="2D Otsu" component=Controller parameter=neighbourhood_metric value=mean
+3:29PM DBG parameter updated algorithm="2D Otsu" component=Controller parameter=normalize_histogram value=true
+3:29PM INF processing coordinator connected component=GUIManager
+3:29PM INF initialization complete component=Application
+3:29PM INF GUI displayed component=GUIManager
+3:29PM INF GUI displayed component=Application
+3:29PM DBG loading image component=ImageLoader extension=.png path="/Users/erst/Desktop/Ut feritur ferit.png"
+3:29PM DBG image data read component=ImageLoader size_bytes=291032
+3:29PM INF image loaded successfully channels=3 component=ImageLoader format=png height=995 width=1400
+3:29PM INF image loaded channels=3 component=PipelineCoordinator format=png height=995 width=1400
+3:29PM INF image loaded component=Controller format=png height=995 width=1400
+3:29PM DBG algorithm changed algorithm="Iterative Triclass" component=Controller
+3:29PM DBG parameter updated algorithm="Iterative Triclass" component=Controller parameter=initial_threshold_method value=otsu
+3:29PM DBG parameter updated algorithm="Iterative Triclass" component=Controller parameter=apply_cleanup value=true
+3:29PM DBG parameter updated algorithm="Iterative Triclass" component=Controller parameter=preserve_borders value=true
+3:29PM DBG parameter updated algorithm="Iterative Triclass" component=Controller parameter=apply_preprocessing value=true
+3:29PM INF processing started algorithm="Iterative Triclass" component=Controller
+3:29PM DBG processing started algorithm="Iterative Triclass" component=ImageProcessor height=995 width=1400
+3:29PM INF processing completed algorithm="Iterative Triclass" component=ImageProcessor input_size=1400x995 output_size=1400x995
+3:29PM INF image processed algorithm="Iterative Triclass" component=PipelineCoordinator height=995 width=1400
+3:29PM INF processing completed algorithm="Iterative Triclass" component=Controller height=995 width=1400
+3:29PM DBG saving image component=ImageSaver format=png height=995 width=1400
+3:29PM INF image saved component=ImageSaver format=png
+3:29PM INF image saved with format component=PipelineCoordinator format=PNG
+3:29PM INF image saved with format component=Controller format=PNG path=/Users/erst/Desktop/aa.png
+3:29PM INF shutdown requested via window close component=Application
+3:29PM INF shutdown sequence initiated component=ShutdownManager components=3
+3:29PM INF shutdown initiated component=GUIManager
+3:29PM INF shutdown completed component=Controller
+3:29PM INF shutdown completed component=GUIManager
+3:29PM INF shutdown started component=PipelineCoordinator
+3:29PM DBG created new pool and stored Mat component=MemoryManager size=4179000 tag=original_image
+3:29PM DBG created new pool and stored Mat component=MemoryManager size=1393000 tag=processed_image
+3:29PM INF shutdown completed component=PipelineCoordinator
+3:29PM INF shutdown initiated component=MemoryManager
+2025/06/26 15:29:23 *** Error in Fyne call thread, this should have been called in fyne.Do[AndWait] ***
+2025/06/26 15:29:23   From: /Users/erst/Library/CloudStorage/Dropbox/Websites/y/internal/app/application.go:122
+[3:29:36 PM] % 

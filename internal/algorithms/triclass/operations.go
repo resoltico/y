@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"image"
 
-	"gocv.io/x/gocv"
 	"otsu-obliterator/internal/opencv/safe"
+
+	"gocv.io/x/gocv"
 )
 
 func (p *Processor) performIterativeTriclass(working *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {

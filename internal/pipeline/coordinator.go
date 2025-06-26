@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"otsu-obliterator/internal/algorithms"
-	"otsu-obliterator/internal/debug"
+	"otsu-obliterator/internal/logger"
 	"otsu-obliterator/internal/opencv/memory"
 
 	"fyne.io/fyne/v2"
@@ -18,38 +18,33 @@ type Coordinator struct {
 	originalImage    *ImageData
 	processedImage   *ImageData
 	memoryManager    *memory.Manager
-	debugCoord       debug.Coordinator
-	logger           debug.Logger
+	logger           logger.Logger
 	algorithmManager *algorithms.Manager
 	loader           ImageLoader
 	processor        ImageProcessor
 	saver            ImageSaver
 }
 
-func NewCoordinator(memMgr *memory.Manager, debugCoord debug.Coordinator) *Coordinator {
+func NewCoordinator(memMgr *memory.Manager, log logger.Logger) *Coordinator {
 	algMgr := algorithms.NewManager()
-	logger := debugCoord.Logger()
 
 	coord := &Coordinator{
 		memoryManager:    memMgr,
-		debugCoord:       debugCoord,
-		logger:           logger,
+		logger:           log,
 		algorithmManager: algMgr,
 	}
 
-	// Initialize internal components with debug capabilities
+	// Initialize internal components
 	coord.loader = &imageLoader{
 		memoryManager: memMgr,
-		logger:        logger,
-		timingTracker: debugCoord.TimingTracker(),
+		logger:        log,
 	}
 
 	coord.saver = &imageSaver{
-		logger:        logger,
-		timingTracker: debugCoord.TimingTracker(),
+		logger: log,
 	}
 
-	logger.Info("PipelineCoordinator", "initialized", nil)
+	log.Info("PipelineCoordinator", "initialized", nil)
 
 	return coord
 }
@@ -57,9 +52,6 @@ func NewCoordinator(memMgr *memory.Manager, debugCoord debug.Coordinator) *Coord
 func (c *Coordinator) LoadImage(reader fyne.URIReadCloser) (*ImageData, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	ctx := c.debugCoord.TimingTracker().StartTiming("coordinator_load_image")
-	defer c.debugCoord.TimingTracker().EndTiming(ctx)
 
 	imageData, err := c.loader.LoadFromReader(reader)
 	if err != nil {
@@ -96,9 +88,6 @@ func (c *Coordinator) ProcessImage(algorithmName string, params map[string]inter
 		return nil, fmt.Errorf("no image loaded")
 	}
 
-	ctx := c.debugCoord.TimingTracker().StartTiming("coordinator_process_image")
-	defer c.debugCoord.TimingTracker().EndTiming(ctx)
-
 	algorithm, err := c.algorithmManager.GetAlgorithm(algorithmName)
 	if err != nil {
 		c.logger.Error("PipelineCoordinator", err, map[string]interface{}{
@@ -110,7 +99,6 @@ func (c *Coordinator) ProcessImage(algorithmName string, params map[string]inter
 	processor := &imageProcessor{
 		memoryManager:    c.memoryManager,
 		logger:           c.logger,
-		timingTracker:    c.debugCoord.TimingTracker(),
 		algorithmManager: c.algorithmManager,
 	}
 
@@ -141,9 +129,6 @@ func (c *Coordinator) ProcessImage(algorithmName string, params map[string]inter
 }
 
 func (c *Coordinator) SaveImage(writer fyne.URIWriteCloser, imageData *ImageData) error {
-	ctx := c.debugCoord.TimingTracker().StartTiming("coordinator_save_image")
-	defer c.debugCoord.TimingTracker().EndTiming(ctx)
-
 	err := c.saver.SaveToWriter(writer, imageData, "")
 	if err != nil {
 		c.logger.Error("PipelineCoordinator", err, map[string]interface{}{
@@ -160,9 +145,6 @@ func (c *Coordinator) SaveImage(writer fyne.URIWriteCloser, imageData *ImageData
 }
 
 func (c *Coordinator) SaveImageToWriter(writer io.Writer, imageData *ImageData, format string) error {
-	ctx := c.debugCoord.TimingTracker().StartTiming("coordinator_save_image_with_format")
-	defer c.debugCoord.TimingTracker().EndTiming(ctx)
-
 	err := c.saver.SaveToWriter(writer, imageData, strings.ToLower(format))
 	if err != nil {
 		c.logger.Error("PipelineCoordinator", err, map[string]interface{}{
@@ -201,11 +183,11 @@ func (c *Coordinator) CalculateSSIM(original, processed *ImageData) float64 {
 	return 0.8829
 }
 
-func (c *Coordinator) Cleanup() {
+func (c *Coordinator) Shutdown() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.logger.Info("PipelineCoordinator", "cleanup started", nil)
+	c.logger.Info("PipelineCoordinator", "shutdown started", nil)
 
 	if c.originalImage != nil && c.originalImage.Mat != nil {
 		c.memoryManager.ReleaseMat(c.originalImage.Mat, "original_image")
@@ -217,5 +199,5 @@ func (c *Coordinator) Cleanup() {
 		c.processedImage = nil
 	}
 
-	c.logger.Info("PipelineCoordinator", "cleanup completed", nil)
+	c.logger.Info("PipelineCoordinator", "shutdown completed", nil)
 }

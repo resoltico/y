@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"otsu-obliterator/internal/algorithms"
-	"otsu-obliterator/internal/debug"
+	"otsu-obliterator/internal/logger"
 	"otsu-obliterator/internal/pipeline"
 
 	"fyne.io/fyne/v2"
@@ -19,7 +19,7 @@ type Controller struct {
 	view             *View
 	coordinator      pipeline.ProcessingCoordinator
 	algorithmManager *algorithms.Manager
-	logger           debug.Logger
+	logger           logger.Logger
 
 	// State management
 	currentAlgorithm  string
@@ -32,11 +32,11 @@ type Controller struct {
 	processCancel context.CancelFunc
 }
 
-func NewController(coord pipeline.ProcessingCoordinator, debugCoord debug.Coordinator) *Controller {
+func NewController(coord pipeline.ProcessingCoordinator, log logger.Logger) *Controller {
 	return &Controller{
 		coordinator:       coord,
 		algorithmManager:  algorithms.NewManager(),
-		logger:            debugCoord.Logger(),
+		logger:            log,
 		currentAlgorithm:  "2D Otsu",
 		currentParameters: make(map[string]interface{}),
 	}
@@ -53,7 +53,7 @@ func (c *Controller) initializeDefaultParameters() {
 	c.currentParameters = params
 	c.mu.Unlock()
 
-	// Update view on main thread
+	// Use fyne.Do for thread-safe GUI updates
 	fyne.Do(func() {
 		c.view.UpdateParameterPanel(c.currentAlgorithm, params)
 	})
@@ -327,7 +327,7 @@ func (c *Controller) saveImageWithFormat(filepath string, processedImg *pipeline
 	c.updateStatus("Saving image...")
 
 	go func() {
-		// Create new file with proper extension
+		// Create new file with extension
 		ext := ".png"
 		if format == "JPEG" {
 			ext = ".jpg"

@@ -10,7 +10,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create application: %v", err)
 	}
-	
+
 	if err := application.Run(); err != nil {
 		log.Fatalf("Application failed: %v", err)
 	}

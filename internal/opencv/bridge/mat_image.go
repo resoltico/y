@@ -153,17 +153,17 @@ func rgbaToMat(img *image.RGBA, width, height int) (*safe.Mat, error) {
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			rgba := img.RGBAAt(x, y)
-			
+
 			if err := mat.SetUCharAt3(y, x, 0, rgba.B); err != nil {
 				mat.Close()
 				return nil, fmt.Errorf("failed to set B channel at (%d,%d): %w", x, y, err)
 			}
-			
+
 			if err := mat.SetUCharAt3(y, x, 1, rgba.G); err != nil {
 				mat.Close()
 				return nil, fmt.Errorf("failed to set G channel at (%d,%d): %w", x, y, err)
 			}
-			
+
 			if err := mat.SetUCharAt3(y, x, 2, rgba.R); err != nil {
 				mat.Close()
 				return nil, fmt.Errorf("failed to set R channel at (%d,%d): %w", x, y, err)
@@ -183,17 +183,17 @@ func nrgbaToMat(img *image.NRGBA, width, height int) (*safe.Mat, error) {
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			nrgba := img.NRGBAAt(x, y)
-			
+
 			if err := mat.SetUCharAt3(y, x, 0, nrgba.B); err != nil {
 				mat.Close()
 				return nil, fmt.Errorf("failed to set B channel at (%d,%d): %w", x, y, err)
 			}
-			
+
 			if err := mat.SetUCharAt3(y, x, 1, nrgba.G); err != nil {
 				mat.Close()
 				return nil, fmt.Errorf("failed to set G channel at (%d,%d): %w", x, y, err)
 			}
-			
+
 			if err := mat.SetUCharAt3(y, x, 2, nrgba.R); err != nil {
 				mat.Close()
 				return nil, fmt.Errorf("failed to set R channel at (%d,%d): %w", x, y, err)
@@ -213,22 +213,22 @@ func genericImageToMat(img image.Image, width, height int) (*safe.Mat, error) {
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			r, g, b, _ := img.At(x, y).RGBA()
-			
+
 			// Convert from 16-bit to 8-bit
 			r8 := uint8(r >> 8)
 			g8 := uint8(g >> 8)
 			b8 := uint8(b >> 8)
-			
+
 			if err := mat.SetUCharAt3(y, x, 0, b8); err != nil {
 				mat.Close()
 				return nil, fmt.Errorf("failed to set B channel at (%d,%d): %w", x, y, err)
 			}
-			
+
 			if err := mat.SetUCharAt3(y, x, 1, g8); err != nil {
 				mat.Close()
 				return nil, fmt.Errorf("failed to set G channel at (%d,%d): %w", x, y, err)
 			}
-			
+
 			if err := mat.SetUCharAt3(y, x, 2, r8); err != nil {
 				mat.Close()
 				return nil, fmt.Errorf("failed to set R channel at (%d,%d): %w", x, y, err)

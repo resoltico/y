@@ -8,21 +8,19 @@ import (
 	"io"
 	"strings"
 
+	"otsu-obliterator/internal/logger"
+
 	"fyne.io/fyne/v2"
 )
 
 type imageSaver struct {
-	logger        Logger
-	timingTracker TimingTracker
+	logger logger.Logger
 }
 
 func (s *imageSaver) SaveToWriter(writer io.Writer, imageData *ImageData, format string) error {
 	if imageData == nil {
 		return fmt.Errorf("no image data to save")
 	}
-
-	ctx := s.timingTracker.StartTiming("save_to_writer")
-	defer s.timingTracker.EndTiming(ctx)
 
 	img, ok := imageData.Image.(image.Image)
 	if !ok {
@@ -39,7 +37,6 @@ func (s *imageSaver) SaveToWriter(writer io.Writer, imageData *ImageData, format
 			case ".png":
 				saveFormat = "png"
 			default:
-				// No extension provided, default to PNG
 				saveFormat = "png"
 			}
 		} else {

@@ -1,7 +1,7 @@
 package gui
 
 import (
-	"otsu-obliterator/internal/debug"
+	"otsu-obliterator/internal/logger"
 	"otsu-obliterator/internal/pipeline"
 
 	"fyne.io/fyne/v2"
@@ -12,24 +12,20 @@ type Manager struct {
 	window     fyne.Window
 	controller *Controller
 	view       *View
-	debugCoord debug.Coordinator
-	logger     debug.Logger
+	logger     logger.Logger
 	isShutdown bool
 }
 
-func NewManager(window fyne.Window, debugCoord debug.Coordinator) (*Manager, error) {
-	logger := debugCoord.Logger()
-
+func NewManager(window fyne.Window, log logger.Logger) (*Manager, error) {
 	manager := &Manager{
 		window:     window,
-		debugCoord: debugCoord,
-		logger:     logger,
+		logger:     log,
 		isShutdown: false,
 	}
 
 	manager.initializeComponents()
 
-	logger.Info("GUIManager", "initialized with MVC pattern", map[string]interface{}{
+	log.Info("GUIManager", "initialized with MVC pattern", map[string]interface{}{
 		"window_title": window.Title(),
 	})
 
@@ -41,7 +37,7 @@ func (m *Manager) initializeComponents() {
 	m.view = NewView(m.window)
 
 	// Create controller - will be set with processing coordinator later
-	m.controller = NewController(nil, m.debugCoord)
+	m.controller = NewController(nil, m.logger)
 
 	// Connect view and controller
 	m.view.SetController(m.controller)
@@ -51,7 +47,7 @@ func (m *Manager) initializeComponents() {
 // SetProcessingCoordinator connects the processing pipeline
 func (m *Manager) SetProcessingCoordinator(coordinator pipeline.ProcessingCoordinator) {
 	// Update controller with coordinator
-	m.controller = NewController(coordinator, m.debugCoord)
+	m.controller = NewController(coordinator, m.logger)
 
 	// Reconnect view and controller
 	m.view.SetController(m.controller)
@@ -74,33 +70,7 @@ func (m *Manager) Show() {
 	m.logger.Info("GUIManager", "GUI displayed", nil)
 }
 
-// Legacy compatibility methods for existing handlers
-func (m *Manager) SetImageLoadHandler(handler func()) {
-	// This is now handled internally by the controller
-	m.logger.Debug("GUIManager", "image load handler set (legacy)", nil)
-}
-
-func (m *Manager) SetImageSaveHandler(handler func()) {
-	// This is now handled internally by the controller
-	m.logger.Debug("GUIManager", "image save handler set (legacy)", nil)
-}
-
-func (m *Manager) SetAlgorithmChangeHandler(handler func(string)) {
-	// This is now handled internally by the controller
-	m.logger.Debug("GUIManager", "algorithm change handler set (legacy)", nil)
-}
-
-func (m *Manager) SetParameterChangeHandler(handler func(string, interface{})) {
-	// This is now handled internally by the controller
-	m.logger.Debug("GUIManager", "parameter change handler set (legacy)", nil)
-}
-
-func (m *Manager) SetGeneratePreviewHandler(handler func()) {
-	// This is now handled internally by the controller
-	m.logger.Debug("GUIManager", "generate preview handler set (legacy)", nil)
-}
-
-// Direct interface methods - these delegate to the controller
+// Direct interface methods - these delegate to the controller using fyne.Do
 func (m *Manager) SetOriginalImage(img interface{}) {
 	if imageData, ok := img.(*pipeline.ImageData); ok {
 		fyne.Do(func() {
@@ -162,4 +132,6 @@ func (m *Manager) Shutdown() {
 	if m.view != nil {
 		m.view.Shutdown()
 	}
+
+	m.logger.Info("GUIManager", "shutdown completed", nil)
 }

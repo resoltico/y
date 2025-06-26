@@ -23,16 +23,16 @@ func (p *Processor) GetName() string {
 
 func (p *Processor) GetDefaultParameters() map[string]interface{} {
 	return map[string]interface{}{
-		"quality":                   "Fast",
-		"initial_threshold_method":  "otsu",
-		"histogram_bins":            64,
-		"convergence_epsilon":       1.0,
-		"max_iterations":            10,
-		"minimum_tbd_fraction":      0.01,
-		"lower_upper_gap_factor":    0.5,
-		"apply_preprocessing":       false,
-		"apply_cleanup":             true,
-		"preserve_borders":          false,
+		"quality":                  "Fast",
+		"initial_threshold_method": "otsu",
+		"histogram_bins":           64,
+		"convergence_epsilon":      1.0,
+		"max_iterations":           10,
+		"minimum_tbd_fraction":     0.01,
+		"lower_upper_gap_factor":   0.5,
+		"apply_preprocessing":      false,
+		"apply_cleanup":            true,
+		"preserve_borders":         false,
 	}
 }
 

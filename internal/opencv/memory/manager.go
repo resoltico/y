@@ -3,30 +3,22 @@ package memory
 import (
 	"fmt"
 	"sync"
+	"time"
 
+	"otsu-obliterator/internal/logger"
 	"otsu-obliterator/internal/opencv/safe"
 
 	"gocv.io/x/gocv"
 )
 
-type Logger interface {
-	Debug(component string, message string, fields map[string]interface{})
-	Info(component string, message string, fields map[string]interface{})
-	Error(component string, err error, fields map[string]interface{})
-}
-
-type MemoryTracker interface {
-	TrackAllocation(ptr uintptr, size int64, tag string)
-	TrackDeallocation(ptr uintptr, tag string)
-}
-
 type Manager struct {
-	pools      map[PoolKey]*Pool
-	mu         sync.RWMutex
-	memTracker MemoryTracker
-	logger     Logger
-	maxMemory  int64
-	usedMemory int64
+	pools        map[PoolKey]*Pool
+	mu           sync.RWMutex
+	logger       logger.Logger
+	maxMemory    int64
+	usedMemory   int64
+	allocCount   int64
+	deallocCount int64
 }
 
 type PoolKey struct {
@@ -35,12 +27,11 @@ type PoolKey struct {
 	MatType gocv.MatType
 }
 
-func NewManager(logger Logger, memTracker MemoryTracker) *Manager {
+func NewManager(log logger.Logger) *Manager {
 	return &Manager{
-		pools:      make(map[PoolKey]*Pool),
-		memTracker: memTracker,
-		logger:     logger,
-		maxMemory:  2 * 1024 * 1024 * 1024, // 2GB limit
+		pools:     make(map[PoolKey]*Pool),
+		logger:    log,
+		maxMemory: 2 * 1024 * 1024 * 1024, // 2GB limit
 	}
 }
 
@@ -59,12 +50,10 @@ func (m *Manager) GetMat(rows, cols int, matType gocv.MatType, tag string) (*saf
 
 	if pool, exists := m.pools[key]; exists {
 		if mat := pool.Get(); mat != nil {
-			if m.logger != nil {
-				m.logger.Debug("MemoryManager", "reused Mat from pool", map[string]interface{}{
-					"tag":  tag,
-					"size": size,
-				})
-			}
+			m.logger.Debug("MemoryManager", "reused Mat from pool", map[string]interface{}{
+				"tag":  tag,
+				"size": size,
+			})
 			return mat, nil
 		}
 	}
@@ -75,27 +64,25 @@ func (m *Manager) GetMat(rows, cols int, matType gocv.MatType, tag string) (*saf
 	}
 
 	m.usedMemory += size
+	m.allocCount++
 
-	if m.logger != nil {
-		m.logger.Debug("MemoryManager", "created new Mat", map[string]interface{}{
-			"tag":  tag,
-			"size": size,
-		})
-	}
+	m.logger.Debug("MemoryManager", "created new Mat", map[string]interface{}{
+		"tag":          tag,
+		"size":         size,
+		"total_allocs": m.allocCount,
+	})
 
 	return mat, nil
 }
 
 func (m *Manager) TrackAllocation(ptr uintptr, size int64, tag string) {
-	if m.memTracker != nil {
-		m.memTracker.TrackAllocation(ptr, size, tag)
-	}
+	// Tracking is handled in Mat allocation
 }
 
 func (m *Manager) TrackDeallocation(ptr uintptr, tag string) {
-	if m.memTracker != nil {
-		m.memTracker.TrackDeallocation(ptr, tag)
-	}
+	m.mu.Lock()
+	m.deallocCount++
+	m.mu.Unlock()
 }
 
 func (m *Manager) ReleaseMat(mat *safe.Mat, tag string) {
@@ -116,12 +103,10 @@ func (m *Manager) ReleaseMat(mat *safe.Mat, tag string) {
 
 	if pool, exists := m.pools[key]; exists {
 		if pool.Put(mat) {
-			if m.logger != nil {
-				m.logger.Debug("MemoryManager", "returned Mat to pool", map[string]interface{}{
-					"tag":  tag,
-					"size": size,
-				})
-			}
+			m.logger.Debug("MemoryManager", "returned Mat to pool", map[string]interface{}{
+				"tag":  tag,
+				"size": size,
+			})
 			m.usedMemory -= size
 			return
 		}
@@ -129,12 +114,10 @@ func (m *Manager) ReleaseMat(mat *safe.Mat, tag string) {
 		pool = NewPool(5) // Max 5 mats per pool
 		m.pools[key] = pool
 		if pool.Put(mat) {
-			if m.logger != nil {
-				m.logger.Debug("MemoryManager", "created new pool and stored Mat", map[string]interface{}{
-					"tag":  tag,
-					"size": size,
-				})
-			}
+			m.logger.Debug("MemoryManager", "created new pool and stored Mat", map[string]interface{}{
+				"tag":  tag,
+				"size": size,
+			})
 			m.usedMemory -= size
 			return
 		}
@@ -143,13 +126,11 @@ func (m *Manager) ReleaseMat(mat *safe.Mat, tag string) {
 	mat.Close()
 	m.usedMemory -= size
 
-	if m.logger != nil {
-		m.logger.Debug("MemoryManager", "closed Mat directly", map[string]interface{}{
-			"tag":    tag,
-			"size":   size,
-			"reason": "pool_full",
-		})
-	}
+	m.logger.Debug("MemoryManager", "closed Mat directly", map[string]interface{}{
+		"tag":    tag,
+		"size":   size,
+		"reason": "pool_full",
+	})
 }
 
 func (m *Manager) GetUsedMemory() int64 {
@@ -158,10 +139,39 @@ func (m *Manager) GetUsedMemory() int64 {
 	return m.usedMemory
 }
 
-func (m *Manager) GetMaxMemory() int64 {
+func (m *Manager) GetStats() (allocCount, deallocCount int64, usedMemory int64) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.maxMemory
+	return m.allocCount, m.deallocCount, m.usedMemory
+}
+
+func (m *Manager) MonitorMemory() {
+	ticker := time.NewTicker(30 * time.Second)
+	go func() {
+		defer ticker.Stop()
+		for range ticker.C {
+			alloc, dealloc, used := m.GetStats()
+
+			m.logger.Debug("MemoryManager", "memory stats", map[string]interface{}{
+				"allocations":   alloc,
+				"deallocations": dealloc,
+				"used_bytes":    used,
+				"gocv_count":    gocv.MatProfile.Count(),
+			})
+
+			// Warn if potential leak detected
+			if gocv.MatProfile.Count() > 100 {
+				m.logger.Warning("MemoryManager", "potential memory leak detected", map[string]interface{}{
+					"mat_count": gocv.MatProfile.Count(),
+				})
+			}
+		}
+	}()
+}
+
+func (m *Manager) Shutdown() {
+	m.logger.Info("MemoryManager", "shutdown initiated", nil)
+	m.Cleanup()
 }
 
 func (m *Manager) Cleanup() {
@@ -174,11 +184,10 @@ func (m *Manager) Cleanup() {
 		delete(m.pools, key)
 	}
 
-	if m.logger != nil {
-		m.logger.Info("MemoryManager", "cleanup completed", map[string]interface{}{
-			"mats_cleaned": matCount,
-		})
-	}
+	m.logger.Info("MemoryManager", "cleanup completed", map[string]interface{}{
+		"mats_cleaned": matCount,
+		"final_count":  gocv.MatProfile.Count(),
+	})
 
 	m.usedMemory = 0
 }

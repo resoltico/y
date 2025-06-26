@@ -66,9 +66,9 @@ build() {
     local extra_flags=""
     
     case $target in
-        "profile")
+        "profile"|"debug")
             extra_flags="-tags ${BUILD_TAGS}"
-            log "Building with profiling..."
+            log "Building with MatProfile memory tracking..."
             ;;
         "windows")
             output_name="${BINARY_NAME}.exe"
@@ -117,7 +117,7 @@ run_with_env() {
         if [ -f "${BUILD_DIR}/${BINARY_NAME}" ]; then
             "./${BUILD_DIR}/${BINARY_NAME}"
         else
-            build
+            build "profile"
             "./${BUILD_DIR}/${BINARY_NAME}"
         fi
     fi
@@ -128,17 +128,22 @@ show_help() {
 Usage: $0 [command] [options]
 
 Commands:
-  build [target]      Build binary (default, profile, windows, macos, macos-arm64, linux)
-  run                 Build and run application
-  debug [type]        Run with debug flags (safe, all, format, gui, algorithms)
+  build [target]      Build binary (default, profile, debug, windows, macos, macos-arm64, linux)
+  run                 Build and run application with memory tracking
+  debug [type]        Run with debug environment variables
   test                Run tests
   clean               Clean build artifacts
   deps                Install dependencies
   help                Show this help
 
+Debug types:
+  basic               Basic application debugging (LOG_LEVEL=debug)
+  memory              Memory usage monitoring with MatProfile
+  all                 All debugging features enabled
+
 Examples:
-  $0 build profile    Build with profiling
-  $0 debug safe       Run with safe debugging
+  $0 build profile    Build with MatProfile memory tracking
+  $0 debug memory     Run with memory debugging
   $0 build windows    Cross-compile for Windows
 EOF
 }
@@ -150,24 +155,22 @@ case "${1:-help}" in
         ;;
     "run")
         check_deps
-        run_with_env "" "Running ${BINARY_NAME}..."
+        # Always build with MatProfile for development
+        build "profile"
+        export LOG_LEVEL=info
+        "./${BUILD_DIR}/${BINARY_NAME}"
         ;;
     "debug")
-        case "${2:-safe}" in
-            "safe")
-                run_with_env "OTSU_DEBUG_TRICLASS=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_FORMAT=true" "Running with safe debugging..."
+        check_deps
+        case "${2:-basic}" in
+            "basic")
+                run_with_env "LOG_LEVEL=debug" "Running with basic debugging..."
+                ;;
+            "memory")
+                run_with_env "LOG_LEVEL=debug GOMAXPROCS=1" "Running with memory debugging and MatProfile..."
                 ;;
             "all")
-                run_with_env "OTSU_DEBUG_FORMAT=true OTSU_DEBUG_IMAGE=true OTSU_DEBUG_MEMORY=true OTSU_DEBUG_PERFORMANCE=true OTSU_DEBUG_GUI=true OTSU_DEBUG_ALGORITHMS=true OTSU_DEBUG_TRICLASS=true" "Running with all debugging..."
-                ;;
-            "format")
-                run_with_env "OTSU_DEBUG_FORMAT=true" "Running with format debugging..."
-                ;;
-            "gui")
-                run_with_env "OTSU_DEBUG_GUI=true" "Running with GUI debugging..."
-                ;;
-            "algorithms")
-                run_with_env "OTSU_DEBUG_ALGORITHMS=true" "Running with algorithm debugging..."
+                run_with_env "LOG_LEVEL=debug GOMAXPROCS=1" "Running with all debugging features..."
                 ;;
             *)
                 error "Unknown debug type: ${2}"
@@ -176,7 +179,7 @@ case "${1:-help}" in
         esac
         ;;
     "test")
-        log "Running tests..."
+        log "Running tests with MatProfile..."
         go test -tags ${BUILD_TAGS} ./...
         success "Tests completed"
         ;;

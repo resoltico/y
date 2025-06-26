@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 
+	"otsu-obliterator/internal/logger"
 	"otsu-obliterator/internal/opencv/memory"
 	"otsu-obliterator/internal/opencv/safe"
 
@@ -17,14 +18,10 @@ import (
 
 type imageLoader struct {
 	memoryManager *memory.Manager
-	logger        Logger
-	timingTracker TimingTracker
+	logger        logger.Logger
 }
 
 func (l *imageLoader) LoadFromReader(reader fyne.URIReadCloser) (*ImageData, error) {
-	ctx := l.timingTracker.StartTiming("load_from_reader")
-	defer l.timingTracker.EndTiming(ctx)
-
 	originalURI := reader.URI()
 	uriExtension := strings.ToLower(originalURI.Extension())
 
@@ -46,29 +43,20 @@ func (l *imageLoader) LoadFromReader(reader fyne.URIReadCloser) (*ImageData, err
 }
 
 func (l *imageLoader) LoadFromBytes(data []byte, format string) (*ImageData, error) {
-	ctx := l.timingTracker.StartTiming("load_from_bytes")
-	defer l.timingTracker.EndTiming(ctx)
-
 	// Decode with standard library for Go image interface
-	stdCtx := l.timingTracker.StartTiming("stdlib_decode")
 	img, standardLibFormat, err := image.Decode(strings.NewReader(string(data)))
-	l.timingTracker.EndTiming(stdCtx)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode image with standard library: %w", err)
 	}
 
 	// Decode with OpenCV for Mat operations
-	cvCtx := l.timingTracker.StartTiming("opencv_decode")
 	mat, err := gocv.IMDecode(data, gocv.IMReadColor)
-	l.timingTracker.EndTiming(cvCtx)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode image with OpenCV: %w", err)
 	}
+	defer mat.Close() // Close the gocv.Mat after creating safe wrapper
 
 	safeMat, err := safe.NewMatFromMatWithTracker(mat, l.memoryManager, "loaded_image")
-	mat.Close()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create safe Mat: %w", err)
 	}

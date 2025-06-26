@@ -3,14 +3,16 @@ package app
 import (
 	"os"
 
-	"otsu-obliterator/internal/debug"
 	"otsu-obliterator/internal/gui"
 	"otsu-obliterator/internal/gui/widgets"
+	"otsu-obliterator/internal/logger"
 	"otsu-obliterator/internal/opencv/memory"
 	"otsu-obliterator/internal/pipeline"
+	"otsu-obliterator/internal/shutdown"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -25,8 +27,8 @@ type Application struct {
 	guiManager    *gui.Manager
 	coordinator   pipeline.ProcessingCoordinator
 	memoryManager *memory.Manager
-	debugCoord    debug.Coordinator
-	lifecycle     *Lifecycle
+	logger        logger.Logger
+	shutdownMgr   *shutdown.Manager
 }
 
 func NewApplication() (*Application, error) {
@@ -40,31 +42,39 @@ func NewApplication() (*Application, error) {
 	window.CenterOnScreen()
 	window.SetMaster()
 
-	debugConfig := getDebugConfig()
-	debugCoord := debug.NewCoordinator(debugConfig)
+	// Initialize logging
+	logLevel := getLogLevel()
+	log := logger.NewConsoleLogger(logLevel)
 
-	logger := debugCoord.Logger()
-	memTracker := debugCoord.MemoryTracker()
-
-	logger.Info("Application", "starting application", map[string]interface{}{
+	log.Info("Application", "starting application", map[string]interface{}{
 		"version":       AppVersion,
 		"window_width":  windowSize.Width,
 		"window_height": windowSize.Height,
-		"debug_enabled": debugConfig.EnableLogging,
+		"log_level":     logLevel.String(),
 	})
 
-	memoryManager := memory.NewManager(logger, memTracker)
-	coordinator := pipeline.NewCoordinator(memoryManager, debugCoord)
+	// Initialize shutdown manager
+	shutdownMgr := shutdown.NewManager(log)
+	shutdownMgr.Listen()
 
-	guiManager, err := gui.NewManager(window, debugCoord)
+	// Initialize memory manager with monitoring
+	memoryManager := memory.NewManager(log)
+	memoryManager.MonitorMemory()
+	shutdownMgr.Register(memoryManager)
+
+	// Initialize processing coordinator
+	coordinator := pipeline.NewCoordinator(memoryManager, log)
+	shutdownMgr.Register(coordinator)
+
+	// Initialize GUI manager
+	guiManager, err := gui.NewManager(window, log)
 	if err != nil {
 		return nil, err
 	}
+	shutdownMgr.Register(guiManager)
 
 	// Connect the processing coordinator to GUI
 	guiManager.SetProcessingCoordinator(coordinator)
-
-	lifecycle := NewLifecycle(memoryManager, debugCoord, guiManager)
 
 	application := &Application{
 		fyneApp:       fyneApp,
@@ -72,11 +82,11 @@ func NewApplication() (*Application, error) {
 		guiManager:    guiManager,
 		coordinator:   coordinator,
 		memoryManager: memoryManager,
-		debugCoord:    debugCoord,
-		lifecycle:     lifecycle,
+		logger:        log,
+		shutdownMgr:   shutdownMgr,
 	}
 
-	logger.Info("Application", "initialization complete", nil)
+	log.Info("Application", "initialization complete", nil)
 	return application, nil
 }
 
@@ -95,46 +105,42 @@ func calculateMinimumWindowSize() fyne.Size {
 }
 
 func (a *Application) Run() error {
-	logger := a.debugCoord.Logger()
-
 	a.window.SetCloseIntercept(func() {
-		logger.Info("Application", "shutdown requested", nil)
-		a.lifecycle.Shutdown()
+		a.logger.Info("Application", "shutdown requested via window close", nil)
+		go a.shutdownMgr.Shutdown()
 		a.window.Close()
 	})
 
-	// Show the GUI using the new MVC pattern
+	// Show the GUI using the MVC pattern
 	a.guiManager.Show()
 
-	logger.Info("Application", "GUI displayed", nil)
+	a.logger.Info("Application", "GUI displayed", nil)
+
+	// Run in a goroutine to handle shutdown signals
+	go func() {
+		<-a.shutdownMgr.Done()
+		a.fyneApp.Quit()
+	}()
+
 	a.fyneApp.Run()
 
 	return nil
 }
 
-func getDebugConfig() debug.Config {
-	if os.Getenv("OTSU_DEBUG_ALL") == "true" {
-		return debug.DefaultConfig()
+func getLogLevel() zerolog.Level {
+	switch os.Getenv("LOG_LEVEL") {
+	case "debug":
+		return zerolog.DebugLevel
+	case "info":
+		return zerolog.InfoLevel
+	case "warn":
+		return zerolog.WarnLevel
+	case "error":
+		return zerolog.ErrorLevel
+	default:
+		if os.Getenv("OTSU_DEBUG_ALL") == "true" {
+			return zerolog.DebugLevel
+		}
+		return zerolog.InfoLevel
 	}
-
-	if os.Getenv("OTSU_PRODUCTION") == "true" {
-		return debug.ProductionConfig()
-	}
-
-	config := debug.DefaultConfig()
-
-	if os.Getenv("OTSU_DEBUG_MEMORY") == "true" {
-		config.EnableMemoryTracking = true
-		config.EnableStackTraces = true
-	}
-
-	if os.Getenv("OTSU_DEBUG_FILES") == "true" {
-		config.EnableFileTracking = true
-	}
-
-	if os.Getenv("OTSU_JSON_LOGS") == "true" {
-		config.UseJSONLogging = true
-	}
-
-	return config
 }
