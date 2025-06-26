@@ -54,7 +54,7 @@ check_deps() {
     fi
     
     if ! pkg-config --exists opencv4 && ! pkg-config --exists opencv; then
-        warn "OpenCV not found. Install OpenCV 4.11.0+ for full functionality"
+        warn "OpenCV not found. Install OpenCV 4.11.0+ for functionality"
     fi
     
     success "Dependencies checked"

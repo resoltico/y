@@ -1,6 +1,7 @@
 package triclass
 
 import (
+	"context"
 	"fmt"
 
 	"otsu-obliterator/internal/opencv/conversion"
@@ -83,12 +84,21 @@ func (p *Processor) ValidateParameters(params map[string]interface{}) error {
 }
 
 func (p *Processor) Process(input *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+	return p.ProcessWithContext(context.Background(), input, params)
+}
+
+func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
 	if err := safe.ValidateMatForOperation(input, "Iterative Triclass processing"); err != nil {
 		return nil, err
 	}
 
 	if err := p.ValidateParameters(params); err != nil {
 		return nil, fmt.Errorf("parameter validation failed: %w", err)
+	}
+
+	// Check for cancellation
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 
 	gray, err := conversion.ConvertToGrayscale(input)
@@ -103,18 +113,16 @@ func (p *Processor) Process(input *safe.Mat, params map[string]interface{}) (*sa
 		if err != nil {
 			return nil, fmt.Errorf("preprocessing failed: %w", err)
 		}
-		if working != gray {
-			working.Close()
-		}
 		working = preprocessed
+		defer preprocessed.Close()
 	}
-	defer func() {
-		if working != gray {
-			working.Close()
-		}
-	}()
 
-	result, err := p.performIterativeTriclass(working, params)
+	// Check for cancellation before main processing
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	result, err := p.performIterativeTriclass(ctx, working, params)
 	if err != nil {
 		return nil, fmt.Errorf("iterative processing failed: %w", err)
 	}

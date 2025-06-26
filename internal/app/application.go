@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"os"
+	"sync"
 
 	"otsu-obliterator/internal/gui"
 	"otsu-obliterator/internal/gui/widgets"
@@ -29,6 +31,9 @@ type Application struct {
 	memoryManager *memory.Manager
 	logger        logger.Logger
 	shutdownMgr   *shutdown.Manager
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
 }
 
 func NewApplication() (*Application, error) {
@@ -42,7 +47,10 @@ func NewApplication() (*Application, error) {
 	window.CenterOnScreen()
 	window.SetMaster()
 
-	// Initialize logging
+	// Initialize context for cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Initialize logging with context
 	logLevel := getLogLevel()
 	log := logger.NewConsoleLogger(logLevel)
 
@@ -69,6 +77,7 @@ func NewApplication() (*Application, error) {
 	// Initialize GUI manager
 	guiManager, err := gui.NewManager(window, log)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	shutdownMgr.Register(guiManager)
@@ -84,6 +93,8 @@ func NewApplication() (*Application, error) {
 		memoryManager: memoryManager,
 		logger:        log,
 		shutdownMgr:   shutdownMgr,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 
 	log.Info("Application", "initialization complete", nil)
@@ -111,20 +122,45 @@ func (a *Application) Run() error {
 		a.window.Close()
 	})
 
-	// Show the GUI using the MVC pattern
-	a.guiManager.Show()
-
-	a.logger.Info("Application", "GUI displayed", nil)
+	// Show the GUI using the MVC pattern with thread-safe operation
+	fyne.Do(func() {
+		a.guiManager.Show()
+		a.logger.Info("Application", "GUI displayed", nil)
+	})
 
 	// Run in a goroutine to handle shutdown signals
 	go func() {
 		<-a.shutdownMgr.Done()
-		a.fyneApp.Quit()
+
+		// Thread-safe app quit
+		fyne.Do(func() {
+			a.fyneApp.Quit()
+		})
 	}()
 
 	a.fyneApp.Run()
 
+	// Wait for all goroutines to complete
+	a.wg.Wait()
+
 	return nil
+}
+
+func (a *Application) Shutdown(ctx context.Context) error {
+	a.cancel()
+
+	done := make(chan struct{})
+	go func() {
+		a.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func getLogLevel() zerolog.Level {

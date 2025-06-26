@@ -2,6 +2,7 @@ package safe
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -57,6 +58,9 @@ func NewMatWithTracker(rows, cols int, matType gocv.MatType, memTracker MemoryTr
 		memTracker.TrackAllocation(ptr, size, tag)
 	}
 
+	// Set finalizer for cleanup if Close() is not called
+	runtime.SetFinalizer(safeMat, (*Mat).finalize)
+
 	return safeMat, nil
 }
 
@@ -93,6 +97,8 @@ func NewMatFromMatWithTracker(srcMat gocv.Mat, memTracker MemoryTracker, tag str
 		ptr := uintptr(unsafe.Pointer(&clonedMat))
 		memTracker.TrackAllocation(ptr, size, tag)
 	}
+
+	runtime.SetFinalizer(safeMat, (*Mat).finalize)
 
 	return safeMat, nil
 }
@@ -302,6 +308,17 @@ func (sm *Mat) Close() {
 		if !sm.mat.Empty() {
 			sm.mat.Close()
 		}
+
+		// Clear finalizer since we're cleaning up manually
+		runtime.SetFinalizer(sm, nil)
+	}
+}
+
+// finalize is called by Go's garbage collector as last resort cleanup
+func (sm *Mat) finalize() {
+	if atomic.LoadInt32(&sm.isValid) == 1 {
+		// Force cleanup if Close() was never called
+		sm.Close()
 	}
 }
 

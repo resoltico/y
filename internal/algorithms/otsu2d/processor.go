@@ -1,7 +1,9 @@
 package otsu2d
 
 import (
+	"context"
 	"fmt"
+	"image"
 
 	"otsu-obliterator/internal/opencv/conversion"
 	"otsu-obliterator/internal/opencv/safe"
@@ -34,6 +36,7 @@ func (p *Processor) GetDefaultParameters() map[string]interface{} {
 		"use_log_histogram":          false,
 		"normalize_histogram":        true,
 		"apply_contrast_enhancement": false,
+		"gaussian_preprocessing":     true,
 	}
 }
 
@@ -72,6 +75,10 @@ func (p *Processor) ValidateParameters(params map[string]interface{}) error {
 }
 
 func (p *Processor) Process(input *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+	return p.ProcessWithContext(context.Background(), input, params)
+}
+
+func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
 	if err := safe.ValidateMatForOperation(input, "2D Otsu processing"); err != nil {
 		return nil, err
 	}
@@ -80,28 +87,57 @@ func (p *Processor) Process(input *safe.Mat, params map[string]interface{}) (*sa
 		return nil, fmt.Errorf("parameter validation failed: %w", err)
 	}
 
+	// Check for cancellation
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	gray, err := conversion.ConvertToGrayscale(input)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert to grayscale: %w", err)
 	}
 	defer gray.Close()
 
+	// Apply Gaussian preprocessing if enabled
+	working := gray
+	if p.getBoolParam(params, "gaussian_preprocessing") {
+		blurred, err := p.applyGaussianBlur(gray)
+		if err != nil {
+			return nil, fmt.Errorf("gaussian preprocessing failed: %w", err)
+		}
+		working = blurred
+		defer blurred.Close()
+	}
+
+	// Check for cancellation after preprocessing
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	if p.getBoolParam(params, "apply_contrast_enhancement") {
-		enhanced, err := p.applyCLAHE(gray)
+		enhanced, err := p.applyCLAHE(working)
 		if err != nil {
 			return nil, fmt.Errorf("contrast enhancement failed: %w", err)
 		}
-		gray.Close()
-		gray = enhanced
+		if working != gray {
+			working.Close()
+		}
+		working = enhanced
+		defer enhanced.Close()
 	}
 
-	neighborhood, err := p.calculateNeighborhoodMean(gray, params)
+	neighborhood, err := p.calculateNeighborhoodMean(working, params)
 	if err != nil {
 		return nil, fmt.Errorf("neighborhood calculation failed: %w", err)
 	}
 	defer neighborhood.Close()
 
-	histogram := p.build2DHistogram(gray, neighborhood, params)
+	// Check for cancellation before histogram processing
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	histogram := p.build2DHistogram(working, neighborhood, params)
 
 	smoothingSigma := p.getFloatParam(params, "smoothing_sigma")
 	if smoothingSigma > 0.0 {
@@ -118,17 +154,32 @@ func (p *Processor) Process(input *safe.Mat, params map[string]interface{}) (*sa
 
 	threshold := p.find2DOtsuThreshold(histogram)
 
-	result, err := safe.NewMat(gray.Rows(), gray.Cols(), gocv.MatTypeCV8UC1)
+	result, err := safe.NewMat(working.Rows(), working.Cols(), gocv.MatTypeCV8UC1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create result Mat: %w", err)
 	}
 
-	if err := p.applyThreshold(gray, neighborhood, result, threshold, params); err != nil {
+	if err := p.applyThreshold(working, neighborhood, result, threshold, params); err != nil {
 		result.Close()
 		return nil, fmt.Errorf("threshold application failed: %w", err)
 	}
 
 	return result, nil
+}
+
+func (p *Processor) applyGaussianBlur(src *safe.Mat) (*safe.Mat, error) {
+	dst, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+
+	srcMat := src.GetMat()
+	dstMat := dst.GetMat()
+
+	// Apply Gaussian blur with kernel size 5x5 for noise reduction
+	gocv.GaussianBlur(srcMat, &dstMat, image.Point{X: 5, Y: 5}, 1.0, 1.0, gocv.BorderDefault)
+
+	return dst, nil
 }
 
 func (p *Processor) getBoolParam(params map[string]interface{}, key string) bool {

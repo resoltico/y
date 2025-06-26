@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"otsu-obliterator/internal/algorithms"
 	"otsu-obliterator/internal/logger"
@@ -53,7 +54,7 @@ func (c *Controller) initializeDefaultParameters() {
 	c.currentParameters = params
 	c.mu.Unlock()
 
-	// Use fyne.Do for thread-safe GUI updates
+	// Thread-safe GUI updates
 	fyne.Do(func() {
 		c.view.UpdateParameterPanel(c.currentAlgorithm, params)
 	})
@@ -75,6 +76,7 @@ func (c *Controller) LoadImage() {
 		go func() {
 			defer reader.Close()
 
+			start := time.Now()
 			imageData, loadErr := c.coordinator.LoadImage(reader)
 
 			fyne.Do(func() {
@@ -88,9 +90,10 @@ func (c *Controller) LoadImage() {
 				c.updateStatus("Image loaded successfully")
 
 				c.logger.Info("Controller", "image loaded", map[string]interface{}{
-					"width":  imageData.Width,
-					"height": imageData.Height,
-					"format": imageData.Format,
+					"width":     imageData.Width,
+					"height":    imageData.Height,
+					"format":    imageData.Format,
+					"load_time": time.Since(start),
 				})
 			})
 		}()
@@ -169,7 +172,7 @@ func (c *Controller) UpdateParameter(name string, value interface{}) {
 	})
 }
 
-// Image processing
+// Image processing with context and cancellation
 func (c *Controller) ProcessImage() {
 	if c.isProcessing() {
 		c.logger.Debug("Controller", "processing already active", nil)
@@ -188,8 +191,8 @@ func (c *Controller) ProcessImage() {
 		c.view.SetProgress(0.1)
 	})
 
-	// Create cancellable context
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create cancellable context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	c.mu.Lock()
 	c.processCtx = ctx
 	c.processCancel = cancel
@@ -201,6 +204,7 @@ func (c *Controller) ProcessImage() {
 			fyne.Do(func() {
 				c.view.SetProgress(0.0)
 			})
+			cancel() // Move cancel to end - after UI update
 		}()
 
 		algorithm := c.getCurrentAlgorithm()
@@ -210,30 +214,51 @@ func (c *Controller) ProcessImage() {
 			"algorithm": algorithm,
 		})
 
+		start := time.Now()
 		processedImg, err := c.coordinator.ProcessImage(algorithm, params)
+		processingTime := time.Since(start)
 
+		c.logger.Debug("Controller", "processing result received", map[string]interface{}{
+			"algorithm":   algorithm,
+			"error":       err != nil,
+			"result_nil":  processedImg == nil,
+			"context_err": ctx.Err() != nil,
+		})
+
+		// Always execute UI update in fyne.Do
 		fyne.Do(func() {
-			if ctx.Err() != nil {
-				c.updateStatus("Processing cancelled")
-				return
-			}
-
 			if err != nil {
 				c.handleError("Processing error", err)
 				c.updateStatus("Processing failed")
+				c.logger.Debug("Controller", "processing failed with error", map[string]interface{}{
+					"error": err.Error(),
+				})
 				return
 			}
 
 			if processedImg != nil {
+				c.logger.Debug("Controller", "setting preview image", map[string]interface{}{
+					"image_type": fmt.Sprintf("%T", processedImg.Image),
+					"width":      processedImg.Width,
+					"height":     processedImg.Height,
+					"image_nil":  processedImg.Image == nil,
+				})
+
 				c.view.SetPreviewImage(processedImg.Image)
 				c.updateMetrics(originalImg, processedImg)
 				c.updateStatus("Processing completed")
 
 				c.logger.Info("Controller", "processing completed", map[string]interface{}{
-					"algorithm": algorithm,
-					"width":     processedImg.Width,
-					"height":    processedImg.Height,
+					"algorithm":       algorithm,
+					"width":           processedImg.Width,
+					"height":          processedImg.Height,
+					"processing_time": processingTime,
 				})
+			} else {
+				c.logger.Error("Controller", fmt.Errorf("processed image is nil"), map[string]interface{}{
+					"algorithm": algorithm,
+				})
+				c.updateStatus("Processing failed - no result")
 			}
 		})
 	}()
@@ -301,7 +326,6 @@ func (c *Controller) getCurrentParameters() map[string]interface{} {
 // Cleanup
 func (c *Controller) Shutdown() {
 	c.CancelProcessing()
-
 	c.logger.Info("Controller", "shutdown completed", nil)
 }
 
@@ -310,7 +334,7 @@ func (c *Controller) showFormatSelectionDialog(writer fyne.URIWriteCloser, proce
 	originalPath := writer.URI().Path()
 
 	c.view.ShowFormatSelectionDialog(func(format string, confirmed bool) {
-		// Always remove the empty file created by the dialog
+		// Remove the empty file created by the dialog
 		os.Remove(originalPath)
 		writer.Close()
 
@@ -367,6 +391,7 @@ func (c *Controller) saveImageWithWriter(writer fyne.URIWriteCloser, processedIm
 	go func() {
 		defer writer.Close()
 
+		start := time.Now()
 		saveErr := c.coordinator.SaveImage(writer, processedImg)
 
 		fyne.Do(func() {
@@ -375,7 +400,8 @@ func (c *Controller) saveImageWithWriter(writer fyne.URIWriteCloser, processedIm
 			} else {
 				c.updateStatus("Image saved successfully")
 				c.logger.Info("Controller", "image saved", map[string]interface{}{
-					"path": writer.URI().Path(),
+					"path":      writer.URI().Path(),
+					"save_time": time.Since(start),
 				})
 			}
 		})

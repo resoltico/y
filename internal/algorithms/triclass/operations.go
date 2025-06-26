@@ -1,6 +1,7 @@
 package triclass
 
 import (
+	"context"
 	"fmt"
 	"image"
 
@@ -9,7 +10,7 @@ import (
 	"gocv.io/x/gocv"
 )
 
-func (p *Processor) performIterativeTriclass(working *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+func (p *Processor) performIterativeTriclass(ctx context.Context, working *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
 	maxIterations := p.getIntParam(params, "max_iterations")
 	convergenceEpsilon := p.getFloatParam(params, "convergence_epsilon")
 	minTBDFraction := p.getFloatParam(params, "minimum_tbd_fraction")
@@ -29,6 +30,11 @@ func (p *Processor) performIterativeTriclass(working *safe.Mat, params map[strin
 	var previousThreshold float64 = -1
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
+		// Check for cancellation at each iteration
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		nonZeroPixels := p.countNonZeroPixels(currentRegion)
 		if nonZeroPixels == 0 {
 			break
@@ -312,6 +318,7 @@ func (p *Processor) applyPreprocessing(src *safe.Mat) (*safe.Mat, error) {
 
 	clahe.Apply(srcMat, &dstMat)
 
+	// Apply denoising
 	denoised, err := safe.NewMat(dst.Rows(), dst.Cols(), dst.Type())
 	if err != nil {
 		dst.Close()
@@ -329,6 +336,7 @@ func (p *Processor) applyCleanup(src *safe.Mat) (*safe.Mat, error) {
 	kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: 3, Y: 3})
 	defer kernel.Close()
 
+	// Apply opening operation
 	opened, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
 	if err != nil {
 		return nil, err
@@ -339,6 +347,7 @@ func (p *Processor) applyCleanup(src *safe.Mat) (*safe.Mat, error) {
 
 	gocv.MorphologyEx(srcMat, &openedMat, gocv.MorphOpen, kernel)
 
+	// Apply closing operation
 	closed, err := safe.NewMat(opened.Rows(), opened.Cols(), opened.Type())
 	if err != nil {
 		opened.Close()
@@ -350,6 +359,7 @@ func (p *Processor) applyCleanup(src *safe.Mat) (*safe.Mat, error) {
 
 	opened.Close()
 
+	// Apply median filtering
 	medianFiltered, err := safe.NewMat(closed.Rows(), closed.Cols(), closed.Type())
 	if err != nil {
 		closed.Close()

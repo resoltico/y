@@ -1,6 +1,8 @@
 package algorithms
 
 import (
+	"context"
+
 	"otsu-obliterator/internal/opencv/safe"
 )
 
@@ -12,18 +14,10 @@ type Algorithm interface {
 	GetName() string
 }
 
-// ProcessingContext provides context for algorithm execution
-type ProcessingContext struct {
-	Input            *safe.Mat
-	Parameters       map[string]interface{}
-	ProgressCallback func(float64)
-}
-
-// ProcessingResult contains the results of algorithm processing
-type ProcessingResult struct {
-	Output  *safe.Mat
-	Metrics map[string]float64
-	Error   error
+// ContextualAlgorithm extends Algorithm with context support for cancellation
+type ContextualAlgorithm interface {
+	Algorithm
+	ProcessWithContext(ctx context.Context, input *safe.Mat, params map[string]interface{}) (*safe.Mat, error)
 }
 
 // AlgorithmManager defines the interface for managing algorithms

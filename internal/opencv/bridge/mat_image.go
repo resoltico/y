@@ -17,6 +17,10 @@ func MatToImage(mat *safe.Mat) (image.Image, error) {
 	cols := mat.Cols()
 	channels := mat.Channels()
 
+	if rows == 0 || cols == 0 {
+		return nil, fmt.Errorf("Mat has zero dimensions: %dx%d", cols, rows)
+	}
+
 	switch channels {
 	case 1:
 		return matToGray(mat, rows, cols)

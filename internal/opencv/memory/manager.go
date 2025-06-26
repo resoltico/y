@@ -12,71 +12,69 @@ import (
 )
 
 type Manager struct {
-	pools        map[PoolKey]*Pool
 	mu           sync.RWMutex
 	logger       logger.Logger
 	maxMemory    int64
 	usedMemory   int64
 	allocCount   int64
 	deallocCount int64
+	activeMats   map[uint64]*MatInfo
 }
 
-type PoolKey struct {
-	Rows    int
-	Cols    int
-	MatType gocv.MatType
+type MatInfo struct {
+	ID        uint64
+	Tag       string
+	Size      int64
+	Timestamp time.Time
 }
 
 func NewManager(log logger.Logger) *Manager {
 	return &Manager{
-		pools:     make(map[PoolKey]*Pool),
-		logger:    log,
-		maxMemory: 2 * 1024 * 1024 * 1024, // 2GB limit
+		logger:     log,
+		maxMemory:  2 * 1024 * 1024 * 1024, // 2GB limit
+		activeMats: make(map[uint64]*MatInfo),
 	}
 }
 
 func (m *Manager) GetMat(rows, cols int, matType gocv.MatType, tag string) (*safe.Mat, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	size := int64(rows * cols * m.getMatTypeSize(matType))
 
+	m.mu.Lock()
 	if m.usedMemory+size > m.maxMemory {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("memory limit exceeded: would use %d bytes, limit is %d",
 			m.usedMemory+size, m.maxMemory)
 	}
-
-	key := PoolKey{Rows: rows, Cols: cols, MatType: matType}
-
-	if pool, exists := m.pools[key]; exists {
-		if mat := pool.Get(); mat != nil {
-			m.logger.Debug("MemoryManager", "reused Mat from pool", map[string]interface{}{
-				"tag":  tag,
-				"size": size,
-			})
-			return mat, nil
-		}
-	}
+	m.mu.Unlock()
 
 	mat, err := safe.NewMatWithTracker(rows, cols, matType, m, tag)
 	if err != nil {
 		return nil, err
 	}
 
+	m.mu.Lock()
 	m.usedMemory += size
 	m.allocCount++
+	m.activeMats[mat.ID()] = &MatInfo{
+		ID:        mat.ID(),
+		Tag:       tag,
+		Size:      size,
+		Timestamp: time.Now(),
+	}
+	m.mu.Unlock()
 
 	m.logger.Debug("MemoryManager", "created new Mat", map[string]interface{}{
 		"tag":          tag,
 		"size":         size,
 		"total_allocs": m.allocCount,
+		"used_memory":  m.usedMemory,
 	})
 
 	return mat, nil
 }
 
 func (m *Manager) TrackAllocation(ptr uintptr, size int64, tag string) {
-	// Tracking is handled in Mat allocation
+	// Tracking is handled in GetMat
 }
 
 func (m *Manager) TrackDeallocation(ptr uintptr, tag string) {
@@ -93,44 +91,18 @@ func (m *Manager) ReleaseMat(mat *safe.Mat, tag string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	size := int64(mat.Rows() * mat.Cols() * m.getMatTypeSize(mat.Type()))
+	if info, exists := m.activeMats[mat.ID()]; exists {
+		delete(m.activeMats, mat.ID())
+		m.usedMemory -= info.Size
 
-	key := PoolKey{
-		Rows:    mat.Rows(),
-		Cols:    mat.Cols(),
-		MatType: mat.Type(),
-	}
-
-	if pool, exists := m.pools[key]; exists {
-		if pool.Put(mat) {
-			m.logger.Debug("MemoryManager", "returned Mat to pool", map[string]interface{}{
-				"tag":  tag,
-				"size": size,
-			})
-			m.usedMemory -= size
-			return
-		}
-	} else {
-		pool = NewPool(5) // Max 5 mats per pool
-		m.pools[key] = pool
-		if pool.Put(mat) {
-			m.logger.Debug("MemoryManager", "created new pool and stored Mat", map[string]interface{}{
-				"tag":  tag,
-				"size": size,
-			})
-			m.usedMemory -= size
-			return
-		}
+		m.logger.Debug("MemoryManager", "released Mat", map[string]interface{}{
+			"tag":         tag,
+			"size":        info.Size,
+			"used_memory": m.usedMemory,
+		})
 	}
 
 	mat.Close()
-	m.usedMemory -= size
-
-	m.logger.Debug("MemoryManager", "closed Mat directly", map[string]interface{}{
-		"tag":    tag,
-		"size":   size,
-		"reason": "pool_full",
-	})
 }
 
 func (m *Manager) GetUsedMemory() int64 {
@@ -145,28 +117,83 @@ func (m *Manager) GetStats() (allocCount, deallocCount int64, usedMemory int64) 
 	return m.allocCount, m.deallocCount, m.usedMemory
 }
 
+func (m *Manager) GetActiveMatCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.activeMats)
+}
+
 func (m *Manager) MonitorMemory() {
 	ticker := time.NewTicker(30 * time.Second)
 	go func() {
 		defer ticker.Stop()
 		for range ticker.C {
 			alloc, dealloc, used := m.GetStats()
+			activeCount := m.GetActiveMatCount()
 
 			m.logger.Debug("MemoryManager", "memory stats", map[string]interface{}{
-				"allocations":   alloc,
-				"deallocations": dealloc,
-				"used_bytes":    used,
-				"gocv_count":    gocv.MatProfile.Count(),
+				"allocations":    alloc,
+				"deallocations":  dealloc,
+				"used_bytes":     used,
+				"active_mats":    activeCount,
+				"gocv_mat_count": gocv.MatProfile.Count(),
 			})
 
 			// Warn if potential leak detected
 			if gocv.MatProfile.Count() > 100 {
 				m.logger.Warning("MemoryManager", "potential memory leak detected", map[string]interface{}{
-					"mat_count": gocv.MatProfile.Count(),
+					"gocv_mat_count": gocv.MatProfile.Count(),
+					"active_mats":    activeCount,
 				})
+			}
+
+			// Log oldest active Mats if too many
+			if activeCount > 50 {
+				m.logOldestMats(5)
 			}
 		}
 	}()
+}
+
+func (m *Manager) logOldestMats(count int) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	type matAge struct {
+		info *MatInfo
+		age  time.Duration
+	}
+
+	var oldest []matAge
+	now := time.Now()
+
+	for _, info := range m.activeMats {
+		age := now.Sub(info.Timestamp)
+		if len(oldest) < count {
+			oldest = append(oldest, matAge{info, age})
+		} else {
+			// Find if this is older than the youngest in our list
+			minIdx := 0
+			minAge := oldest[0].age
+			for i := 1; i < len(oldest); i++ {
+				if oldest[i].age < minAge {
+					minAge = oldest[i].age
+					minIdx = i
+				}
+			}
+			if age > minAge {
+				oldest[minIdx] = matAge{info, age}
+			}
+		}
+	}
+
+	for _, mat := range oldest {
+		m.logger.Warning("MemoryManager", "long-lived Mat detected", map[string]interface{}{
+			"tag":  mat.info.Tag,
+			"size": mat.info.Size,
+			"age":  mat.age.String(),
+		})
+	}
 }
 
 func (m *Manager) Shutdown() {
@@ -178,15 +205,18 @@ func (m *Manager) Cleanup() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	matCount := 0
-	for key, pool := range m.pools {
-		matCount += pool.Cleanup()
-		delete(m.pools, key)
+	matCount := len(m.activeMats)
+	for id, info := range m.activeMats {
+		m.logger.Warning("MemoryManager", "cleaning up unreleased Mat", map[string]interface{}{
+			"tag":  info.Tag,
+			"size": info.Size,
+		})
+		delete(m.activeMats, id)
 	}
 
 	m.logger.Info("MemoryManager", "cleanup completed", map[string]interface{}{
-		"mats_cleaned": matCount,
-		"final_count":  gocv.MatProfile.Count(),
+		"mats_cleaned":     matCount,
+		"final_gocv_count": gocv.MatProfile.Count(),
 	})
 
 	m.usedMemory = 0
