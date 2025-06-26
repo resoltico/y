@@ -19,7 +19,7 @@ type Manager struct {
 	isShutdown bool
 
 	imageDisplay      *components.ImageDisplay
-	toolbar           *components.ResponsiveToolbar
+	toolbar           *components.Toolbar
 	parametersSection *components.ParametersSection
 
 	imageLoadHandler       func()
@@ -33,7 +33,7 @@ func NewManager(window fyne.Window, debugCoord debug.Coordinator) (*Manager, err
 	logger := debugCoord.Logger()
 
 	imageDisplay := components.NewImageDisplay()
-	toolbar := components.NewResponsiveToolbar()
+	toolbar := components.NewToolbar()
 	parametersSection := components.NewParametersSection()
 
 	manager := &Manager{
@@ -108,6 +108,15 @@ func (m *Manager) SetAlgorithmChangeHandler(handler func(string)) {
 
 func (m *Manager) SetParameterChangeHandler(handler func(string, interface{})) {
 	m.parameterChangeHandler = handler
+
+	// Handle both quality and other parameter changes
+	m.toolbar.SetQualityChangeHandler(func(quality string) {
+		m.logger.Debug("GUIManager", "quality change", map[string]interface{}{
+			"quality": quality,
+		})
+		handler("quality", quality)
+	})
+
 	m.parametersSection.SetParameterChangeHandler(func(name string, value interface{}) {
 		m.logger.Debug("GUIManager", "parameter change", map[string]interface{}{
 			"parameter": name,

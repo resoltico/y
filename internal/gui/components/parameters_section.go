@@ -10,7 +10,6 @@ import (
 
 type ParametersSection struct {
 	container         *fyne.Container
-	qualityRadio      *widget.RadioGroup
 	parametersContent *fyne.Container
 	onParameterChange func(string, interface{})
 }
@@ -22,27 +21,11 @@ func NewParametersSection() *ParametersSection {
 }
 
 func (ps *ParametersSection) setupSection() {
-	ps.qualityRadio = widget.NewRadioGroup([]string{"Fast", "Best"}, func(value string) {
-		if ps.onParameterChange != nil {
-			ps.onParameterChange("quality", value)
-		}
-	})
-	ps.qualityRadio.SetSelected("Fast")
-
-	qualityColumn := container.NewVBox(
-		widget.NewLabel("Quality:"),
-		ps.qualityRadio,
-	)
-
 	ps.parametersContent = container.NewVBox(
 		widget.NewLabel("Parameters:"),
 	)
 
-	ps.container = container.NewHBox(
-		qualityColumn,
-		widget.NewSeparator(),
-		ps.parametersContent,
-	)
+	ps.container = container.NewVBox(ps.parametersContent)
 }
 
 func (ps *ParametersSection) GetContainer() *fyne.Container {
