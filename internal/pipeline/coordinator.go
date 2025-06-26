@@ -2,6 +2,8 @@ package pipeline
 
 import (
 	"fmt"
+	"io"
+	"strings"
 	"sync"
 
 	"otsu-obliterator/internal/algorithms"
@@ -152,6 +154,26 @@ func (c *Coordinator) SaveImage(writer fyne.URIWriteCloser, imageData *ImageData
 
 	c.logger.Info("PipelineCoordinator", "image saved", map[string]interface{}{
 		"path": writer.URI().Path(),
+	})
+
+	return nil
+}
+
+func (c *Coordinator) SaveImageToWriter(writer io.Writer, imageData *ImageData, format string) error {
+	ctx := c.debugCoord.TimingTracker().StartTiming("coordinator_save_image_with_format")
+	defer c.debugCoord.TimingTracker().EndTiming(ctx)
+
+	err := c.saver.SaveToWriter(writer, imageData, strings.ToLower(format))
+	if err != nil {
+		c.logger.Error("PipelineCoordinator", err, map[string]interface{}{
+			"operation": "save_image_with_format",
+			"format":    format,
+		})
+		return err
+	}
+
+	c.logger.Info("PipelineCoordinator", "image saved with format", map[string]interface{}{
+		"format": format,
 	})
 
 	return nil

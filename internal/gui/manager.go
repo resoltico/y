@@ -1,209 +1,150 @@
 package gui
 
 import (
-	"fmt"
-	"image"
-
 	"otsu-obliterator/internal/debug"
-	"otsu-obliterator/internal/gui/components"
+	"otsu-obliterator/internal/pipeline"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 )
 
+// Manager coordinates the MVC pattern for the GUI
 type Manager struct {
 	window     fyne.Window
+	controller *Controller
+	view       *View
 	debugCoord debug.Coordinator
 	logger     debug.Logger
 	isShutdown bool
-
-	imageDisplay      *components.ImageDisplay
-	toolbar           *components.Toolbar
-	parametersSection *components.ParametersSection
-
-	imageLoadHandler       func()
-	imageSaveHandler       func()
-	algorithmChangeHandler func(string)
-	parameterChangeHandler func(string, interface{})
-	generatePreviewHandler func()
 }
 
 func NewManager(window fyne.Window, debugCoord debug.Coordinator) (*Manager, error) {
 	logger := debugCoord.Logger()
 
-	imageDisplay := components.NewImageDisplay()
-	toolbar := components.NewToolbar()
-	parametersSection := components.NewParametersSection()
-
 	manager := &Manager{
-		window:            window,
-		debugCoord:        debugCoord,
-		logger:            logger,
-		isShutdown:        false,
-		imageDisplay:      imageDisplay,
-		toolbar:           toolbar,
-		parametersSection: parametersSection,
+		window:     window,
+		debugCoord: debugCoord,
+		logger:     logger,
+		isShutdown: false,
 	}
 
-	manager.setupInitialParameters()
+	manager.initializeComponents()
 
-	logger.Info("GUIManager", "initialized with border layout", map[string]interface{}{
-		"image_width":  components.ImageAreaWidth,
-		"image_height": components.ImageAreaHeight,
+	logger.Info("GUIManager", "initialized with MVC pattern", map[string]interface{}{
+		"window_title": window.Title(),
 	})
 
 	return manager, nil
 }
 
-func (m *Manager) setupInitialParameters() {
-	defaultParams := map[string]interface{}{
-		"quality":                    "Fast",
-		"window_size":                7,
-		"histogram_bins":             64,
-		"neighbourhood_metric":       "mean",
-		"pixel_weight_factor":        0.5,
-		"smoothing_sigma":            1.0,
-		"use_log_histogram":          false,
-		"normalize_histogram":        true,
-		"apply_contrast_enhancement": false,
-	}
+func (m *Manager) initializeComponents() {
+	// Create view first
+	m.view = NewView(m.window)
 
-	m.parametersSection.UpdateParameters("2D Otsu", defaultParams)
+	// Create controller - will be set with processing coordinator later
+	m.controller = NewController(nil, m.debugCoord)
+
+	// Connect view and controller
+	m.view.SetController(m.controller)
+	m.controller.SetView(m.view)
 }
 
+// SetProcessingCoordinator connects the processing pipeline
+func (m *Manager) SetProcessingCoordinator(coordinator pipeline.ProcessingCoordinator) {
+	// Update controller with coordinator
+	m.controller = NewController(coordinator, m.debugCoord)
+
+	// Reconnect view and controller
+	m.view.SetController(m.controller)
+	m.controller.SetView(m.view)
+
+	m.logger.Info("GUIManager", "processing coordinator connected", nil)
+}
+
+// Public interface for the application layer
 func (m *Manager) GetMainContainer() *fyne.Container {
-	return container.NewVBox(
-		m.imageDisplay.GetContainer(),
-		m.toolbar.GetContainer(),
-		m.parametersSection.GetContainer(),
-	)
+	return m.view.GetMainContainer()
 }
 
 func (m *Manager) GetWindow() fyne.Window {
 	return m.window
 }
 
+func (m *Manager) Show() {
+	m.view.Show()
+	m.logger.Info("GUIManager", "GUI displayed", nil)
+}
+
+// Legacy compatibility methods for existing handlers
 func (m *Manager) SetImageLoadHandler(handler func()) {
-	m.imageLoadHandler = handler
-	m.toolbar.SetImageLoadHandler(handler)
+	// This is now handled internally by the controller
+	m.logger.Debug("GUIManager", "image load handler set (legacy)", nil)
 }
 
 func (m *Manager) SetImageSaveHandler(handler func()) {
-	m.imageSaveHandler = handler
-	m.toolbar.SetImageSaveHandler(handler)
+	// This is now handled internally by the controller
+	m.logger.Debug("GUIManager", "image save handler set (legacy)", nil)
 }
 
 func (m *Manager) SetAlgorithmChangeHandler(handler func(string)) {
-	m.algorithmChangeHandler = handler
-	m.toolbar.SetAlgorithmChangeHandler(func(algorithm string) {
-		m.logger.Debug("GUIManager", "algorithm change requested", map[string]interface{}{
-			"algorithm": algorithm,
-		})
-
-		handler(algorithm)
-		m.requestParameterUpdate(algorithm)
-	})
+	// This is now handled internally by the controller
+	m.logger.Debug("GUIManager", "algorithm change handler set (legacy)", nil)
 }
 
 func (m *Manager) SetParameterChangeHandler(handler func(string, interface{})) {
-	m.parameterChangeHandler = handler
-
-	// Handle both quality and other parameter changes
-	m.toolbar.SetQualityChangeHandler(func(quality string) {
-		m.logger.Debug("GUIManager", "quality change", map[string]interface{}{
-			"quality": quality,
-		})
-		handler("quality", quality)
-	})
-
-	m.parametersSection.SetParameterChangeHandler(func(name string, value interface{}) {
-		m.logger.Debug("GUIManager", "parameter change", map[string]interface{}{
-			"parameter": name,
-			"value":     value,
-		})
-
-		handler(name, value)
-	})
+	// This is now handled internally by the controller
+	m.logger.Debug("GUIManager", "parameter change handler set (legacy)", nil)
 }
 
 func (m *Manager) SetGeneratePreviewHandler(handler func()) {
-	m.generatePreviewHandler = handler
-	m.toolbar.SetGeneratePreviewHandler(func() {
-		m.logger.Info("GUIManager", "preview generation started", nil)
-		handler()
-	})
+	// This is now handled internally by the controller
+	m.logger.Debug("GUIManager", "generate preview handler set (legacy)", nil)
 }
 
-func (m *Manager) SetOriginalImage(img image.Image) {
-	fyne.Do(func() {
-		m.imageDisplay.SetOriginalImage(img)
-		m.logger.Debug("GUIManager", "original image set", map[string]interface{}{
-			"bounds": img.Bounds(),
+// Direct interface methods - these delegate to the controller
+func (m *Manager) SetOriginalImage(img interface{}) {
+	if imageData, ok := img.(*pipeline.ImageData); ok {
+		fyne.Do(func() {
+			m.controller.view.SetOriginalImage(imageData.Image)
 		})
-	})
+	}
 }
 
-func (m *Manager) SetPreviewImage(img image.Image) {
-	fyne.Do(func() {
-		m.imageDisplay.SetPreviewImage(img)
-		m.logger.Debug("GUIManager", "preview image set", map[string]interface{}{
-			"bounds": img.Bounds(),
+func (m *Manager) SetPreviewImage(img interface{}) {
+	if imageData, ok := img.(*pipeline.ImageData); ok {
+		fyne.Do(func() {
+			m.controller.view.SetPreviewImage(imageData.Image)
 		})
-	})
+	}
 }
 
 func (m *Manager) UpdateParameterPanel(algorithm string, params map[string]interface{}) {
 	fyne.Do(func() {
-		m.parametersSection.UpdateParameters(algorithm, params)
-		m.logger.Debug("GUIManager", "parameter panel updated", map[string]interface{}{
-			"algorithm":   algorithm,
-			"param_count": len(params),
-		})
+		m.view.UpdateParameterPanel(algorithm, params)
 	})
 }
 
 func (m *Manager) UpdateStatus(status string) {
 	fyne.Do(func() {
-		m.toolbar.SetStatus(status)
-		m.logger.Debug("GUIManager", "status updated", map[string]interface{}{
-			"status": status,
-		})
+		m.view.SetStatus(status)
 	})
 }
 
 func (m *Manager) UpdateProgress(progress float64) {
 	fyne.Do(func() {
-		if progress > 0 && progress < 1 {
-			m.toolbar.SetProgress(fmt.Sprintf("[%.0f%%]", progress*100))
-		} else {
-			m.toolbar.SetProgress("")
-		}
+		m.view.SetProgress(progress)
 	})
 }
 
 func (m *Manager) UpdateMetrics(psnr, ssim float64) {
 	fyne.Do(func() {
-		m.toolbar.SetMetrics(psnr, ssim)
-		m.logger.Debug("GUIManager", "metrics updated", map[string]interface{}{
-			"psnr": psnr,
-			"ssim": ssim,
-		})
+		m.view.SetMetrics(psnr, ssim)
 	})
 }
 
 func (m *Manager) ShowError(title string, err error) {
-	m.logger.Error("GUIManager", err, map[string]interface{}{
-		"title": title,
-	})
-
 	fyne.Do(func() {
-		dialog.ShowError(err, m.window)
+		m.view.ShowError(title, err)
 	})
-}
-
-func (m *Manager) requestParameterUpdate(algorithm string) {
-	// Parameter update handled by application handler
 }
 
 func (m *Manager) Shutdown() {
@@ -213,4 +154,12 @@ func (m *Manager) Shutdown() {
 
 	m.isShutdown = true
 	m.logger.Info("GUIManager", "shutdown initiated", nil)
+
+	if m.controller != nil {
+		m.controller.Shutdown()
+	}
+
+	if m.view != nil {
+		m.view.Shutdown()
+	}
 }

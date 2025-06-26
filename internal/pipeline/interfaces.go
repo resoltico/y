@@ -36,6 +36,7 @@ type ProcessingCoordinator interface {
 	LoadImage(reader fyne.URIReadCloser) (*ImageData, error)
 	ProcessImage(algorithmName string, params map[string]interface{}) (*ImageData, error)
 	SaveImage(writer fyne.URIWriteCloser, imageData *ImageData) error
+	SaveImageToWriter(writer io.Writer, imageData *ImageData, format string) error
 	GetOriginalImage() *ImageData
 	GetProcessedImage() *ImageData
 	CalculatePSNR(original, processed *ImageData) float64

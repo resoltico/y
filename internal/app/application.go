@@ -5,7 +5,7 @@ import (
 
 	"otsu-obliterator/internal/debug"
 	"otsu-obliterator/internal/gui"
-	"otsu-obliterator/internal/gui/components"
+	"otsu-obliterator/internal/gui/widgets"
 	"otsu-obliterator/internal/opencv/memory"
 	"otsu-obliterator/internal/pipeline"
 
@@ -61,6 +61,9 @@ func NewApplication() (*Application, error) {
 		return nil, err
 	}
 
+	// Connect the processing coordinator to GUI
+	guiManager.SetProcessingCoordinator(coordinator)
+
 	lifecycle := NewLifecycle(memoryManager, debugCoord, guiManager)
 
 	application := &Application{
@@ -73,38 +76,22 @@ func NewApplication() (*Application, error) {
 		lifecycle:     lifecycle,
 	}
 
-	if err := application.setupHandlers(); err != nil {
-		return nil, err
-	}
-
 	logger.Info("Application", "initialization complete", nil)
 	return application, nil
 }
 
 func calculateMinimumWindowSize() fyne.Size {
-	imageDisplayWidth := components.ImageAreaWidth * 2
+	imageDisplayWidth := widgets.ImageAreaWidth * 2
 	toolbarHeight := float32(50)
 	parametersHeight := float32(150)
 
 	minimumWidth := float32(imageDisplayWidth + 100)
-	minimumHeight := float32(components.ImageAreaHeight + toolbarHeight + parametersHeight + 100)
+	minimumHeight := float32(widgets.ImageAreaHeight + toolbarHeight + parametersHeight + 100)
 
 	return fyne.Size{
 		Width:  minimumWidth,
 		Height: minimumHeight,
 	}
-}
-
-func (a *Application) setupHandlers() error {
-	handlers := NewHandlers(a.coordinator, a.guiManager, a.debugCoord)
-
-	a.guiManager.SetImageLoadHandler(handlers.HandleImageLoad)
-	a.guiManager.SetImageSaveHandler(handlers.HandleImageSave)
-	a.guiManager.SetAlgorithmChangeHandler(handlers.HandleAlgorithmChange)
-	a.guiManager.SetParameterChangeHandler(handlers.HandleParameterChange)
-	a.guiManager.SetGeneratePreviewHandler(handlers.HandleGeneratePreview)
-
-	return nil
 }
 
 func (a *Application) Run() error {
@@ -116,8 +103,8 @@ func (a *Application) Run() error {
 		a.window.Close()
 	})
 
-	a.window.SetContent(a.guiManager.GetMainContainer())
-	a.window.Show()
+	// Show the GUI using the new MVC pattern
+	a.guiManager.Show()
 
 	logger.Info("Application", "GUI displayed", nil)
 	a.fyneApp.Run()
