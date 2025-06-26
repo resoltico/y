@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"fmt"
 	"image"
 
 	"otsu-obliterator/internal/debug"
@@ -11,21 +12,15 @@ import (
 	"fyne.io/fyne/v2/dialog"
 )
 
-const (
-	LeftPanelMinWidth  = 280
-	RightPanelMinWidth = 320
-)
-
 type Manager struct {
 	window     fyne.Window
 	debugCoord debug.Coordinator
 	logger     debug.Logger
 	isShutdown bool
 
-	imageDisplay    *components.ImageDisplay
-	controlsPanel   *components.ControlsPanel
-	parametersPanel *components.ParametersPanel
-	statusBar       *components.StatusBar
+	imageDisplay      *components.ImageDisplay
+	toolbar           *components.ResponsiveToolbar
+	parametersSection *components.ParametersSection
 
 	imageLoadHandler       func()
 	imageSaveHandler       func()
@@ -38,28 +33,24 @@ func NewManager(window fyne.Window, debugCoord debug.Coordinator) (*Manager, err
 	logger := debugCoord.Logger()
 
 	imageDisplay := components.NewImageDisplay()
-	controlsPanel := components.NewControlsPanel()
-	parametersPanel := components.NewParametersPanel()
-	statusBar := components.NewStatusBar()
+	toolbar := components.NewResponsiveToolbar()
+	parametersSection := components.NewParametersSection()
 
 	manager := &Manager{
-		window:          window,
-		debugCoord:      debugCoord,
-		logger:          logger,
-		isShutdown:      false,
-		imageDisplay:    imageDisplay,
-		controlsPanel:   controlsPanel,
-		parametersPanel: parametersPanel,
-		statusBar:       statusBar,
+		window:            window,
+		debugCoord:        debugCoord,
+		logger:            logger,
+		isShutdown:        false,
+		imageDisplay:      imageDisplay,
+		toolbar:           toolbar,
+		parametersSection: parametersSection,
 	}
 
 	manager.setupInitialParameters()
 
-	logger.Info("GUIManager", "initialized with BorderLayout", map[string]interface{}{
-		"left_panel_width":     LeftPanelMinWidth,
-		"right_panel_width":    RightPanelMinWidth,
-		"default_image_width":  components.DefaultImageWidth,
-		"default_image_height": components.DefaultImageHeight,
+	logger.Info("GUIManager", "initialized with synchronized layout", map[string]interface{}{
+		"image_width":  components.ImageAreaWidth,
+		"image_height": components.ImageAreaHeight,
 	})
 
 	return manager, nil
@@ -78,33 +69,37 @@ func (m *Manager) setupInitialParameters() {
 		"apply_contrast_enhancement": false,
 	}
 
-	m.parametersPanel.UpdateParameters("2D Otsu", defaultParams)
-
-	m.logger.Debug("GUIManager", "initial parameters configured", map[string]interface{}{
-		"algorithm":   "2D Otsu",
-		"param_count": len(defaultParams),
-	})
+	m.parametersSection.UpdateParameters("2D Otsu", defaultParams)
 }
 
 func (m *Manager) GetMainContainer() *fyne.Container {
-	leftPanel := container.NewVBox(m.controlsPanel.GetContainer())
-	rightPanel := container.NewVBox(m.parametersPanel.GetContainer())
-	centerPanel := m.imageDisplay.GetContainer()
-
-	mainContent := container.NewBorder(
-		nil,
-		nil,
-		leftPanel,
-		rightPanel,
-		centerPanel,
+	// Create responsive toolbar with proper positioning
+	leftSection := container.NewHBox(
+		m.toolbar.LoadButton,
+		m.toolbar.SaveButton,
 	)
 
-	return container.NewBorder(
-		nil,
-		m.statusBar.GetContainer(),
-		nil,
-		nil,
-		mainContent,
+	centerSection := container.NewHBox(
+		m.toolbar.AlgorithmGroup,
+		container.NewCenter(m.toolbar.GenerateButton),
+		m.toolbar.StatusGroup,
+	)
+
+	rightSection := container.NewHBox(
+		m.toolbar.MetricsLabel,
+	)
+
+	responsiveToolbar := container.NewBorder(
+		nil, nil,
+		leftSection,
+		rightSection,
+		centerSection,
+	)
+
+	return container.NewVBox(
+		m.imageDisplay.GetContainer(),
+		responsiveToolbar,
+		m.parametersSection.GetContainer(),
 	)
 }
 
@@ -114,17 +109,17 @@ func (m *Manager) GetWindow() fyne.Window {
 
 func (m *Manager) SetImageLoadHandler(handler func()) {
 	m.imageLoadHandler = handler
-	m.controlsPanel.SetImageLoadHandler(handler)
+	m.toolbar.SetImageLoadHandler(handler)
 }
 
 func (m *Manager) SetImageSaveHandler(handler func()) {
 	m.imageSaveHandler = handler
-	m.controlsPanel.SetImageSaveHandler(handler)
+	m.toolbar.SetImageSaveHandler(handler)
 }
 
 func (m *Manager) SetAlgorithmChangeHandler(handler func(string)) {
 	m.algorithmChangeHandler = handler
-	m.controlsPanel.SetAlgorithmChangeHandler(func(algorithm string) {
+	m.toolbar.SetAlgorithmChangeHandler(func(algorithm string) {
 		m.logger.Debug("GUIManager", "algorithm change requested", map[string]interface{}{
 			"algorithm": algorithm,
 		})
@@ -136,7 +131,7 @@ func (m *Manager) SetAlgorithmChangeHandler(handler func(string)) {
 
 func (m *Manager) SetParameterChangeHandler(handler func(string, interface{})) {
 	m.parameterChangeHandler = handler
-	m.parametersPanel.SetParameterChangeHandler(func(name string, value interface{}) {
+	m.parametersSection.SetParameterChangeHandler(func(name string, value interface{}) {
 		m.logger.Debug("GUIManager", "parameter change", map[string]interface{}{
 			"parameter": name,
 			"value":     value,
@@ -148,7 +143,7 @@ func (m *Manager) SetParameterChangeHandler(handler func(string, interface{})) {
 
 func (m *Manager) SetGeneratePreviewHandler(handler func()) {
 	m.generatePreviewHandler = handler
-	m.controlsPanel.SetGeneratePreviewHandler(func() {
+	m.toolbar.SetGeneratePreviewHandler(func() {
 		m.logger.Info("GUIManager", "preview generation started", nil)
 		handler()
 	})
@@ -174,7 +169,7 @@ func (m *Manager) SetPreviewImage(img image.Image) {
 
 func (m *Manager) UpdateParameterPanel(algorithm string, params map[string]interface{}) {
 	fyne.Do(func() {
-		m.parametersPanel.UpdateParameters(algorithm, params)
+		m.parametersSection.UpdateParameters(algorithm, params)
 		m.logger.Debug("GUIManager", "parameter panel updated", map[string]interface{}{
 			"algorithm":   algorithm,
 			"param_count": len(params),
@@ -184,7 +179,7 @@ func (m *Manager) UpdateParameterPanel(algorithm string, params map[string]inter
 
 func (m *Manager) UpdateStatus(status string) {
 	fyne.Do(func() {
-		m.statusBar.SetStatus(status)
+		m.toolbar.SetStatus(status)
 		m.logger.Debug("GUIManager", "status updated", map[string]interface{}{
 			"status": status,
 		})
@@ -193,13 +188,17 @@ func (m *Manager) UpdateStatus(status string) {
 
 func (m *Manager) UpdateProgress(progress float64) {
 	fyne.Do(func() {
-		m.statusBar.SetProgress(progress)
+		if progress > 0 && progress < 1 {
+			m.toolbar.SetProgress(fmt.Sprintf("[%.0f%%]", progress*100))
+		} else {
+			m.toolbar.SetProgress("")
+		}
 	})
 }
 
 func (m *Manager) UpdateMetrics(psnr, ssim float64) {
 	fyne.Do(func() {
-		m.statusBar.SetMetrics(psnr, ssim)
+		m.toolbar.SetMetrics(psnr, ssim)
 		m.logger.Debug("GUIManager", "metrics updated", map[string]interface{}{
 			"psnr": psnr,
 			"ssim": ssim,

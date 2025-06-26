@@ -82,11 +82,12 @@ func NewApplication() (*Application, error) {
 }
 
 func calculateMinimumWindowSize() fyne.Size {
-	imageDisplaySize := components.DefaultImageWidth*2 + 40
-	panelWidth := gui.LeftPanelMinWidth + gui.RightPanelMinWidth
+	imageDisplayWidth := components.ImageAreaWidth * 2
+	toolbarHeight := float32(50)
+	parametersHeight := float32(150)
 
-	minimumWidth := float32(imageDisplaySize + panelWidth + 40)
-	minimumHeight := float32(components.DefaultImageHeight + 120)
+	minimumWidth := float32(imageDisplayWidth + 100)
+	minimumHeight := float32(components.ImageAreaHeight + toolbarHeight + parametersHeight + 100)
 
 	return fyne.Size{
 		Width:  minimumWidth,

@@ -10,56 +10,46 @@ import (
 )
 
 const (
-	DefaultImageWidth  = 320
-	DefaultImageHeight = 240
+	ImageAreaWidth  = 500
+	ImageAreaHeight = 400
 )
 
 type ImageDisplay struct {
-	container      fyne.CanvasObject
-	originalImage  *canvas.Image
-	previewImage   *canvas.Image
-	originalScroll *container.Scroll
-	previewScroll  *container.Scroll
-	splitContainer *container.Split
+	container     fyne.CanvasObject
+	originalImage *canvas.Image
+	previewImage  *canvas.Image
 }
 
 func NewImageDisplay() *ImageDisplay {
 	originalImage := canvas.NewImageFromImage(nil)
 	originalImage.FillMode = canvas.ImageFillContain
 	originalImage.ScaleMode = canvas.ImageScaleSmooth
+	originalImage.SetMinSize(fyne.NewSize(ImageAreaWidth, ImageAreaHeight))
 
 	previewImage := canvas.NewImageFromImage(nil)
 	previewImage.FillMode = canvas.ImageFillContain
 	previewImage.ScaleMode = canvas.ImageScaleSmooth
+	previewImage.SetMinSize(fyne.NewSize(ImageAreaWidth, ImageAreaHeight))
 
-	originalScroll := container.NewScroll(originalImage)
-	originalScroll.SetMinSize(fyne.NewSize(DefaultImageWidth, DefaultImageHeight))
-
-	previewScroll := container.NewScroll(previewImage)
-	previewScroll.SetMinSize(fyne.NewSize(DefaultImageWidth, DefaultImageHeight))
-
-	originalContainer := container.NewMax(originalScroll)
-	originalWithLabel := container.NewVBox(
+	originalContainer := container.NewBorder(
 		widget.NewRichTextFromMarkdown("**Original**"),
-		originalContainer,
+		nil, nil, nil,
+		originalImage,
 	)
 
-	previewContainer := container.NewMax(previewScroll)
-	previewWithLabel := container.NewVBox(
+	previewContainer := container.NewBorder(
 		widget.NewRichTextFromMarkdown("**Preview**"),
-		previewContainer,
+		nil, nil, nil,
+		previewImage,
 	)
 
-	splitContainer := container.NewHSplit(originalWithLabel, previewWithLabel)
+	splitContainer := container.NewHSplit(originalContainer, previewContainer)
 	splitContainer.SetOffset(0.5)
 
 	return &ImageDisplay{
-		container:      splitContainer,
-		originalImage:  originalImage,
-		previewImage:   previewImage,
-		originalScroll: originalScroll,
-		previewScroll:  previewScroll,
-		splitContainer: splitContainer,
+		container:     splitContainer,
+		originalImage: originalImage,
+		previewImage:  previewImage,
 	}
 }
 
@@ -87,14 +77,4 @@ func (id *ImageDisplay) SetPreviewImage(img image.Image) {
 
 	id.previewImage.Image = img
 	id.previewImage.Refresh()
-}
-
-func (id *ImageDisplay) GetMinimumSize() fyne.Size {
-	labelHeight := float32(30)
-	padding := float32(20)
-
-	return fyne.Size{
-		Width:  DefaultImageWidth*2 + padding,
-		Height: DefaultImageHeight + labelHeight + padding,
-	}
 }
