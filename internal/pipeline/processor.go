@@ -27,7 +27,7 @@ func (p *imageProcessor) ProcessImage(inputData *ImageData, algorithm algorithms
 
 func (p *imageProcessor) ProcessImageWithContext(ctx context.Context, inputData *ImageData, algorithm algorithms.Algorithm, params map[string]interface{}) (*ImageData, error) {
 	if err := safe.ValidateMatForOperation(inputData.Mat, "ProcessImage"); err != nil {
-		return nil, fmt.Errorf("input validation failed: %w", err)
+		return nil, err
 	}
 
 	select {

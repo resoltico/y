@@ -7,7 +7,6 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-// Manager coordinates the MVC pattern for the GUI
 type Manager struct {
 	window     fyne.Window
 	controller *Controller
@@ -33,30 +32,22 @@ func NewManager(window fyne.Window, log logger.Logger) (*Manager, error) {
 }
 
 func (m *Manager) initializeComponents() {
-	// Create view first
 	m.view = NewView(m.window)
-
-	// Create controller - will be set with processing coordinator later
 	m.controller = NewController(nil, m.logger)
 
-	// Connect view and controller
 	m.view.SetController(m.controller)
 	m.controller.SetView(m.view)
 }
 
-// SetProcessingCoordinator connects the processing pipeline
 func (m *Manager) SetProcessingCoordinator(coordinator pipeline.ProcessingCoordinator) {
-	// Update controller with coordinator
 	m.controller = NewController(coordinator, m.logger)
 
-	// Reconnect view and controller
 	m.view.SetController(m.controller)
 	m.controller.SetView(m.view)
 
 	m.logger.Info("GUIManager", "processing coordinator connected", nil)
 }
 
-// Public interface for the application layer
 func (m *Manager) GetMainContainer() *fyne.Container {
 	return m.view.GetMainContainer()
 }
@@ -70,7 +61,6 @@ func (m *Manager) Show() {
 	m.logger.Info("GUIManager", "GUI displayed", nil)
 }
 
-// Direct interface methods - these delegate to the controller using fyne.Do
 func (m *Manager) SetOriginalImage(img interface{}) {
 	if imageData, ok := img.(*pipeline.ImageData); ok {
 		fyne.Do(func() {

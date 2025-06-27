@@ -66,7 +66,9 @@ func (c *Controller) LoadImage() {
 			return
 		}
 
-		c.updateStatus("Loading image...")
+		fyne.Do(func() {
+			c.updateStatus("Loading image...")
+		})
 
 		go func() {
 			defer reader.Close()
@@ -312,17 +314,21 @@ func (c *Controller) showFormatSelectionDialog(writer fyne.URIWriteCloser, proce
 		})
 	}
 
-	c.view.ShowFormatSelectionDialog(func(format string, confirmed bool) {
-		if !confirmed {
-			return
-		}
+	fyne.Do(func() {
+		c.view.ShowFormatSelectionDialog(func(format string, confirmed bool) {
+			if !confirmed {
+				return
+			}
 
-		c.saveImageWithFormat(originalPath, processedImg, format)
+			c.saveImageWithFormat(originalPath, processedImg, format)
+		})
 	})
 }
 
 func (c *Controller) saveImageWithFormat(imagePath string, processedImg *pipeline.ImageData, format string) {
-	c.updateStatus("Saving image...")
+	fyne.Do(func() {
+		c.updateStatus("Saving image...")
+	})
 
 	go func() {
 		ext := ".png"
@@ -358,7 +364,9 @@ func (c *Controller) saveImageWithFormat(imagePath string, processedImg *pipelin
 }
 
 func (c *Controller) saveImageWithWriter(writer fyne.URIWriteCloser, processedImg *pipeline.ImageData) {
-	c.updateStatus("Saving image...")
+	fyne.Do(func() {
+		c.updateStatus("Saving image...")
+	})
 
 	go func() {
 		defer writer.Close()

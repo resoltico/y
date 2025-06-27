@@ -141,7 +141,6 @@ func (p *Processor) applyThreshold(src, neighborhood, dst *safe.Mat, threshold [
 			pixelBin := int(float64(pixelValue) * binScale)
 			neighBin := int(feature * binScale)
 
-			// Clamp to valid range
 			if pixelBin < 0 {
 				pixelBin = 0
 			} else if pixelBin >= histBins {

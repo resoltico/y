@@ -163,5 +163,4 @@ func (v *View) Show() {
 }
 
 func (v *View) Shutdown() {
-	// View cleanup if needed
 }

@@ -18,25 +18,21 @@ import (
 	"gocv.io/x/gocv"
 )
 
-// ImageProcessor defines the contract for image processing algorithms
 type ImageProcessor interface {
 	ProcessImage(inputData *ImageData, algorithm algorithms.Algorithm, params map[string]interface{}) (*ImageData, error)
 	ProcessImageWithContext(ctx context.Context, inputData *ImageData, algorithm algorithms.Algorithm, params map[string]interface{}) (*ImageData, error)
 }
 
-// ImageLoader handles loading images from various sources
 type ImageLoader interface {
 	LoadFromReader(reader fyne.URIReadCloser) (*ImageData, error)
 	LoadFromBytes(data []byte, format string) (*ImageData, error)
 }
 
-// ImageSaver handles saving images to various formats
 type ImageSaver interface {
 	SaveToWriter(writer io.Writer, imageData *ImageData, format string) error
 	SaveToPath(path string, imageData *ImageData) error
 }
 
-// ProcessingCoordinator manages the image processing pipeline
 type ProcessingCoordinator interface {
 	LoadImage(reader fyne.URIReadCloser) (*ImageData, error)
 	ProcessImage(algorithmName string, params map[string]interface{}) (*ImageData, error)
@@ -51,7 +47,6 @@ type ProcessingCoordinator interface {
 	Cancel()
 }
 
-// MemoryManager handles OpenCV Mat memory management
 type MemoryManager interface {
 	GetMat(rows, cols int, matType gocv.MatType, tag string) (*safe.Mat, error)
 	ReleaseMat(mat *safe.Mat, tag string)
@@ -60,7 +55,6 @@ type MemoryManager interface {
 	Cleanup()
 }
 
-// ImageData represents processed image information
 type ImageData struct {
 	Image       image.Image
 	Mat         *safe.Mat
@@ -71,7 +65,6 @@ type ImageData struct {
 	OriginalURI fyne.URI
 }
 
-// ProcessingMetrics contains algorithm performance data
 type ProcessingMetrics struct {
 	ProcessingTime float64
 	MemoryUsed     int64
@@ -131,7 +124,6 @@ func (c *Coordinator) LoadImage(reader fyne.URIReadCloser) (*ImageData, error) {
 
 	start := time.Now()
 
-	// Clean up previous images before loading new one
 	if c.originalImage != nil && c.originalImage.Mat != nil {
 		matToRelease := c.originalImage.Mat
 		c.originalImage = nil
@@ -198,7 +190,6 @@ func (c *Coordinator) ProcessImageWithContext(ctx context.Context, algorithmName
 		return nil, err
 	}
 
-	// Clean up previous processed image
 	if c.processedImage != nil {
 		if c.processedImage.Mat != nil {
 			c.memoryManager.ReleaseMat(c.processedImage.Mat, "processed_image")

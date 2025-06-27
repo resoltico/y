@@ -279,7 +279,7 @@ func (sm *Mat) Reset() {
 
 func (sm *Mat) Close() {
 	if !atomic.CompareAndSwapInt32(&sm.isValid, 1, 0) {
-		return // Already closed
+		return
 	}
 
 	sm.mu.Lock()
@@ -300,6 +300,8 @@ func (sm *Mat) Close() {
 	sm.tag = ""
 	sm.refCount = 0
 	sm.id = 0
+
+	matPool.Put(sm)
 }
 
 func (sm *Mat) finalize() {
@@ -333,7 +335,6 @@ func (sm *Mat) validateCoordinatesAndChannel(row, col, channel int) error {
 	return nil
 }
 
-// Validation functions
 func validateDimensions(rows, cols int) error {
 	if rows <= 0 || cols <= 0 {
 		return fmt.Errorf("invalid dimensions: %dx%d", cols, rows)

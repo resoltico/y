@@ -30,9 +30,6 @@ const (
 	AppVersion = "1.0.0"
 )
 
-// Force menu initialization to prevent dead code elimination
-var ForceMenuInit = true
-
 type shutdownHandler interface {
 	Shutdown()
 }
@@ -49,11 +46,10 @@ type Application struct {
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 	shutdown      chan struct{}
-	menuSetup     bool // Track if menu was setup
+	menuSetup     bool
 }
 
 func NewApplication() (*Application, error) {
-	// Set metadata BEFORE creating app instance
 	app.SetMetadata(fyne.AppMetadata{
 		ID:      AppID,
 		Name:    AppName,
@@ -93,8 +89,7 @@ func NewApplication() (*Application, error) {
 
 	guiManager.SetProcessingCoordinator(coordinator)
 
-	// Force explicit menu setup before returning
-	log.Info("Application", "about to create application struct", nil)
+	log.Info("Application", "creating application struct", nil)
 	application := &Application{
 		fyneApp:       fyneApp,
 		window:        window,
@@ -112,7 +107,6 @@ func NewApplication() (*Application, error) {
 		},
 	}
 
-	// Remove automatic setup calls - let Run() handle it
 	application.setupSignalHandling()
 	log.Info("Application", "initialization complete", nil)
 	return application, nil
@@ -121,7 +115,9 @@ func NewApplication() (*Application, error) {
 func (a *Application) setupMenu() {
 	aboutAction := func() {
 		a.logger.Info("About", "menu action triggered", nil)
-		a.showAbout()
+		fyne.Do(func() {
+			a.showAbout()
+		})
 	}
 
 	fileMenu := fyne.NewMenu("File")
@@ -140,7 +136,6 @@ func (a *Application) setupMenu() {
 func (a *Application) showAbout() {
 	metadata := a.fyneApp.Metadata()
 
-	// Debug logging
 	a.logger.Info("About", "metadata debug", map[string]interface{}{
 		"name":    metadata.Name,
 		"version": metadata.Version,
@@ -148,7 +143,6 @@ func (a *Application) showAbout() {
 		"id":      metadata.ID,
 	})
 
-	// Fallback to constants if metadata is empty (compiled binary)
 	name := metadata.Name
 	if name == "" {
 		name = AppName
@@ -217,9 +211,8 @@ func (a *Application) setupSignalHandling() {
 }
 
 func (a *Application) Run() error {
-	// Ensure menu is setup before running
 	if !a.menuSetup {
-		a.logger.Info("Application", "setting up menu in Run()", nil)
+		a.logger.Info("Application", "setting up menu in Run", nil)
 		a.setupMenu()
 		a.menuSetup = true
 	}
@@ -256,7 +249,7 @@ func (a *Application) ForceMenuSetup() {
 func (a *Application) initiateShutdown() {
 	select {
 	case <-a.shutdown:
-		return // Already shutting down
+		return
 	default:
 		close(a.shutdown)
 	}
@@ -267,7 +260,6 @@ func (a *Application) initiateShutdown() {
 
 	a.cancel()
 
-	// Shutdown components in reverse order with timeout
 	for i := len(a.shutdownables) - 1; i >= 0; i-- {
 		component := a.shutdownables[i]
 
@@ -279,7 +271,6 @@ func (a *Application) initiateShutdown() {
 
 		select {
 		case <-done:
-			// Component shut down successfully
 		case <-time.After(10 * time.Second):
 			a.logger.Warning("Application", "component shutdown timeout", map[string]interface{}{
 				"component_index": i,

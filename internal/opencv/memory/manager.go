@@ -38,7 +38,7 @@ func NewManager(log logger.Logger) *Manager {
 
 	manager := &Manager{
 		logger:     log,
-		maxMemory:  2 * 1024 * 1024 * 1024, // 2GB limit
+		maxMemory:  2 * 1024 * 1024 * 1024,
 		activeMats: make(map[uint64]*MatInfo),
 		ctx:        ctx,
 		cancel:     cancel,
@@ -96,7 +96,6 @@ func (m *Manager) ReturnPooledMat(mat *safe.Mat) {
 }
 
 func (m *Manager) TrackAllocation(ptr uintptr, size int64, tag string) {
-	// Already handled in GetMat for better control
 }
 
 func (m *Manager) TrackDeallocation(ptr uintptr, tag string) {
@@ -175,7 +174,7 @@ func (m *Manager) performMonitoringCheck() {
 		m.logOldestMats(5)
 	}
 
-	if used > m.maxMemory*8/10 { // 80% threshold
+	if used > m.maxMemory*8/10 {
 		runtime.GC()
 	}
 }
@@ -203,7 +202,6 @@ func (m *Manager) logOldestMats(count int) {
 		})
 	}
 
-	// Sort by age descending
 	for i := 0; i < len(ages)-1; i++ {
 		for j := i + 1; j < len(ages); j++ {
 			if ages[i].age < ages[j].age {
