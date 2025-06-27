@@ -81,12 +81,10 @@ func (c *Controller) LoadImage() {
 					return
 				}
 
-				// Clear any existing processed image when loading new original
 				c.view.SetPreviewImage(nil)
 				c.view.SetOriginalImage(imageData.Image)
 				c.updateStatus("Image loaded")
 
-				// Refresh UI
 				c.view.GetMainContainer().Refresh()
 
 				c.logger.Info("Controller", "image loaded", map[string]interface{}{
@@ -143,6 +141,24 @@ func (c *Controller) ChangeAlgorithm(algorithm string) {
 
 	fyne.Do(func() {
 		c.view.UpdateParameterPanel(algorithm, params)
+	})
+}
+
+func (c *Controller) ChangeQuality(quality string) {
+	c.mu.Lock()
+	algorithm := c.currentAlgorithm
+	c.currentParameters["quality"] = quality
+	c.mu.Unlock()
+
+	err := c.algorithmManager.SetParameter(algorithm, "quality", quality)
+	if err != nil {
+		c.handleError("Quality change error", err)
+		return
+	}
+
+	c.logger.Info("Controller", "quality changed", map[string]interface{}{
+		"algorithm": algorithm,
+		"quality":   quality,
 	})
 }
 
@@ -287,9 +303,8 @@ func (c *Controller) Shutdown() {
 
 func (c *Controller) showFormatSelectionDialog(writer fyne.URIWriteCloser, processedImg *pipeline.ImageData) {
 	originalPath := writer.URI().Path()
-	writer.Close() // Close immediately to prevent empty file creation
+	writer.Close()
 
-	// Remove the empty file created by the dialog
 	if err := os.Remove(originalPath); err != nil {
 		c.logger.Debug("Controller", "failed to remove empty file", map[string]interface{}{
 			"path":  originalPath,

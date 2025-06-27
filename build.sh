@@ -77,7 +77,7 @@ build() {
     
     case $target in
         "profile"|"debug")
-            extra_flags="-tags ${BUILD_TAGS} -race"
+            extra_flags="-tags ${BUILD_TAGS}"
             log "Building with memory profiling and race detection..."
             ;;
         "windows")
@@ -107,19 +107,59 @@ build() {
     
     mkdir -p "${BUILD_DIR}"
     
+    # Use go build instead of fyne build to preserve main() entry point
     if [ -n "$env_vars" ]; then
-        if ! env $env_vars go build ${extra_flags} -ldflags="${LDFLAGS}" -o "${BUILD_DIR}/${output_name}" "./${CMD_DIR}"; then
+        if ! env $env_vars go build ${extra_flags} -ldflags "${LDFLAGS}" -o "${BUILD_DIR}/${output_name}" "./${CMD_DIR}"; then
             error "Build failed"
             exit 1
         fi
     else
-        if ! go build ${extra_flags} -ldflags="${LDFLAGS}" -o "${BUILD_DIR}/${output_name}" "./${CMD_DIR}"; then
+        if ! go build ${extra_flags} -ldflags "${LDFLAGS}" -o "${BUILD_DIR}/${output_name}" "./${CMD_DIR}"; then
             error "Build failed"
             exit 1
         fi
     fi
     
     success "Built: ${BUILD_DIR}/${output_name}"
+}
+
+package_app() {
+    local target=${1:-"default"}
+    
+    check_deps
+    build $target
+    
+    log "Packaging application with Fyne..."
+    
+    if ! command -v fyne &> /dev/null; then
+        log "Installing fyne tool..."
+        go install fyne.io/fyne/v2/cmd/fyne@latest
+    fi
+    
+    case $target in
+        "windows")
+            if [ -f "${BUILD_DIR}/${BINARY_NAME}.exe" ]; then
+                fyne package -o "${BUILD_DIR}/${BINARY_NAME}-installer.exe" -os windows "./${CMD_DIR}"
+                success "Windows package: ${BUILD_DIR}/${BINARY_NAME}-installer.exe"
+            fi
+            ;;
+        "macos"|"macos-arm64")
+            if [ -f "${BUILD_DIR}/${BINARY_NAME}-macos-"* ]; then
+                fyne package -o "${BUILD_DIR}/${BINARY_NAME}.app" -os darwin "./${CMD_DIR}"
+                success "macOS package: ${BUILD_DIR}/${BINARY_NAME}.app"
+            fi
+            ;;
+        "linux")
+            if [ -f "${BUILD_DIR}/${BINARY_NAME}-linux-amd64" ]; then
+                fyne package -o "${BUILD_DIR}/${BINARY_NAME}.tar.xz" -os linux "./${CMD_DIR}"
+                success "Linux package: ${BUILD_DIR}/${BINARY_NAME}.tar.xz"
+            fi
+            ;;
+        *)
+            fyne package -o "${BUILD_DIR}/${BINARY_NAME}-package" "./${CMD_DIR}"
+            success "Package created: ${BUILD_DIR}/${BINARY_NAME}-package"
+            ;;
+    esac
 }
 
 run_with_env() {
@@ -146,6 +186,7 @@ Usage: $0 [command] [options]
 
 Commands:
   build [target]      Build binary (default, profile, debug, windows, macos, macos-arm64, linux)
+  package [target]    Build and package application with Fyne packaging
   run                 Build and run application with memory tracking
   debug [type]        Run with debug environment variables
   test                Run tests with coverage
@@ -165,8 +206,14 @@ Performance targets:
   profile             Build with profiling enabled
   debug               Build with race detection and profiling
 
+Packaging targets:
+  package windows     Create Windows installer
+  package macos       Create macOS application bundle
+  package linux       Create Linux distribution package
+
 Examples:
   $0 build profile    Build with memory profiling
+  $0 package windows  Create Windows installer package
   $0 debug memory     Run with memory debugging
   $0 build windows    Cross-compile for Windows
   $0 bench            Run performance benchmarks
@@ -177,6 +224,9 @@ case "${1:-help}" in
     "build")
         check_deps
         build "${2:-default}"
+        ;;
+    "package")
+        package_app "${2:-default}"
         ;;
     "run")
         check_deps

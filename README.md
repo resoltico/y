@@ -4,8 +4,9 @@ A high-performance image processing application implementing advanced Otsu thres
 
 ## Features
 
-- **2D Otsu Thresholding** - Advanced implementation with neighborhood analysis
-- **Iterative Triclass** - Multi-threshold segmentation with convergence detection
+- **2D Otsu Thresholding** - Advanced implementation with neighborhood analysis and sub-pixel precision
+- **Iterative Triclass** - Multi-threshold segmentation with convergence detection and floating-point accuracy
+- **Quality Modes** - Fast (integer precision) vs Best (sub-pixel convergence) processing modes
 - **Real-time Preview** - Live parameter adjustment with immediate visual feedback
 - **Memory Safety** - Automatic OpenCV Mat lifecycle management with leak detection
 - **Cross-platform** - Native builds for Windows, macOS, and Linux
@@ -46,11 +47,39 @@ cd otsu-obliterator
 ./build.sh debug memory
 ```
 
+### Distribution Packages
+```bash
+# Current platform package
+./build.sh package
+
+# Platform-specific packages
+./build.sh package windows    # Creates installer
+./build.sh package macos      # Creates .app bundle
+./build.sh package linux      # Creates distribution archive
+```
+
+## Critical Build Information
+
+**Important**: This project uses `go build` instead of `fyne build` to preserve proper application entry points. The build script automatically handles this correctly.
+
+**Do NOT manually use**:
+```bash
+fyne build -o binary ./cmd/otsu-obliterator  # Wrong - bypasses main()
+```
+
+**Always use the build script**:
+```bash
+./build.sh build [target]  # Correct - preserves main() execution
+```
+
+This ensures proper menu initialization and About dialog functionality. If you see missing menus or empty About dialogs, verify you're using the build script rather than manual `fyne build`.
+
 ## Requirements
 
 - **Go 1.24+** - Required for modern language features
 - **OpenCV 4.11.0+** - Computer vision operations
 - **CGO enabled** - For OpenCV bindings
+- **Fyne tool** - For packaging (auto-installed when needed)
 
 ### Platform-specific Installation
 
@@ -71,9 +100,23 @@ Follow [GoCV installation guide](https://gocv.io/getting-started/)
 
 1. **Load Image** - Click Load button or drag image file
 2. **Select Algorithm** - Choose between 2D Otsu or Iterative Triclass
-3. **Adjust Parameters** - Use sliders for real-time tuning
-4. **Process** - Click Process button for thresholding
-5. **Save Result** - Export processed image in PNG/JPEG format
+3. **Choose Quality** - Fast (integer precision) or Best (sub-pixel precision)
+4. **Adjust Parameters** - Use sliders for real-time tuning
+5. **Process** - Click Process button for thresholding
+6. **Save Result** - Export processed image in PNG/JPEG format
+
+### Quality Modes
+
+**Fast Mode:**
+- Integer-based calculations for speed
+- Standard threshold detection
+- Suitable for real-time processing
+
+**Best Mode:**
+- Sub-pixel precision with 0.1 step interpolation
+- Floating-point calculations throughout
+- Higher accuracy edge detection
+- 3-5x slower processing time
 
 ### Algorithm Parameters
 
@@ -97,7 +140,8 @@ Follow [GoCV installation guide](https://gocv.io/getting-started/)
 - Real-time memory monitoring with statistics
 
 **Processing Speed:**
-- Optimized histogram calculations
+- Fast mode: Integer calculations for maximum speed
+- Best mode: Sub-pixel precision for quality
 - Context-based cancellation for responsiveness
 - Multi-threaded operations where applicable
 
@@ -133,12 +177,34 @@ LOG_LEVEL=debug ./build/otsu-obliterator
 open coverage.html
 ```
 
+### Packaging
+```bash
+# Create distribution packages
+make dist
+
+# Platform-specific packaging
+make package-windows
+make package-macos
+make package-linux
+```
+
 ## Architecture
 
 - **MVC Pattern** - Clean separation of GUI, business logic, and data
 - **Pipeline Processing** - Modular image processing workflow
 - **Memory Safety** - Wrapper around OpenCV Mat objects with automatic cleanup
 - **Context Propagation** - Cancellation and timeout support throughout
+- **Quality Modes** - Computational precision levels independent of parameter settings
+
+## About Window
+
+Access application information via Help → About menu, showing:
+- Application name and version
+- Author and license information
+- Runtime environment details
+- Build configuration
+
+**Note**: If the About dialog appears empty or menus are missing, ensure you built using `./build.sh build` rather than manual commands.
 
 ## Troubleshooting
 
@@ -151,6 +217,11 @@ open coverage.html
 ./build.sh clean && ./build.sh build
 ```
 
+**Missing Menus/About Dialog:**
+- **Cause**: Using `fyne build` instead of `go build`
+- **Solution**: Always use `./build.sh build [target]`
+- **Verification**: Look for "MAIN: Starting main function" in debug output
+
 **Runtime Issues:**
 - Ensure OpenCV is properly installed and accessible
 - Check that image files are in supported formats (PNG, JPEG, TIFF, BMP)
@@ -158,8 +229,14 @@ open coverage.html
 
 **Performance Issues:**
 - Use production builds (`./build.sh build`) not debug builds
+- Choose Fast quality mode for speed, Best for accuracy
 - Close unused images to free memory
 - Reduce histogram bins for faster processing on large images
+
+**Packaging Issues:**
+- Ensure Fyne tool is installed: `go install fyne.io/fyne/v2/cmd/fyne@latest`
+- Verify FyneApp.toml configuration is complete
+- Check platform-specific dependencies are met
 
 ## License, Author
 

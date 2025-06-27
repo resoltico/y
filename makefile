@@ -1,8 +1,8 @@
 # Otsu Obliterator - Memory-Aware Image Processing
-.PHONY: all build run clean deps test help bench lint format profile
+.PHONY: all build run clean deps test help bench lint format profile package
 .DEFAULT_GOAL := help
 
-# Performance and memory optimization targets
+# Performance and memory targets
 all: deps lint test build
 
 build:
@@ -44,7 +44,7 @@ format:
 lint:
 	@./build.sh lint
 
-# Cross-compilation targets for deployment
+# Cross-compilation targets
 build-windows:
 	@./build.sh build windows
 
@@ -56,6 +56,19 @@ build-macos-arm64:
 
 build-linux:
 	@./build.sh build linux
+
+# Packaging targets
+package:
+	@./build.sh package
+
+package-windows:
+	@./build.sh package windows
+
+package-macos:
+	@./build.sh package macos
+
+package-linux:
+	@./build.sh package linux
 
 # Development workflow
 dev: deps format lint test build-profile
@@ -76,6 +89,13 @@ release: deps format lint test
 	@./build.sh build macos-arm64
 	@./build.sh build linux
 	@echo "Release builds completed in build/ directory"
+
+# Distribution packages
+dist: deps format lint test
+	@./build.sh package windows
+	@./build.sh package macos
+	@./build.sh package linux
+	@echo "Distribution packages completed in build/ directory"
 
 help:
 	@echo "Otsu Obliterator - Memory-Aware Image Processing"
@@ -103,5 +123,12 @@ help:
 	@echo "  build-macos     macOS Intel executable"
 	@echo "  build-linux     Linux x64 executable"
 	@echo "  release         Build all platform targets"
+	@echo ""
+	@echo "Distribution packaging:"
+	@echo "  package         Package for current platform"
+	@echo "  package-windows Create Windows installer"
+	@echo "  package-macos   Create macOS application bundle"
+	@echo "  package-linux   Create Linux distribution package"
+	@echo "  dist            Create all distribution packages"
 	@echo ""
 	@echo "For detailed options: ./build.sh help"

@@ -61,6 +61,7 @@ func (v *View) setupEventHandlers() {
 	v.toolbar.SetSaveHandler(v.controller.SaveImage)
 	v.toolbar.SetProcessHandler(v.controller.ProcessImage)
 	v.toolbar.SetAlgorithmChangeHandler(v.controller.ChangeAlgorithm)
+	v.toolbar.SetQualityChangeHandler(v.controller.ChangeQuality)
 
 	v.parameterPanel.SetParameterChangeHandler(v.controller.UpdateParameter)
 }

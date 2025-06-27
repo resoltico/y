@@ -139,34 +139,198 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 	default:
 	}
 
-	histogram := p.build2DHistogram(working, neighborhood, params)
+	quality := p.getStringParam(params, "quality")
+	var threshold [2]float64
 
-	smoothingSigma := p.getFloatParam(params, "smoothing_sigma")
-	if smoothingSigma > 0.0 {
-		p.smoothHistogram(histogram, smoothingSigma)
+	if quality == "Best" {
+		histogram := p.build2DHistogramFloat(working, neighborhood, params)
+		threshold = p.find2DOtsuThresholdFloat(histogram, params)
+	} else {
+		histogram := p.build2DHistogram(working, neighborhood, params)
+		thresholdInt := p.find2DOtsuThreshold(histogram)
+		threshold = [2]float64{float64(thresholdInt[0]), float64(thresholdInt[1])}
 	}
-
-	if p.getBoolParam(params, "use_log_histogram") {
-		p.applyLogScaling(histogram)
-	}
-
-	if p.getBoolParam(params, "normalize_histogram") {
-		p.normalizeHistogram(histogram)
-	}
-
-	threshold := p.find2DOtsuThreshold(histogram)
 
 	result, err := safe.NewMat(working.Rows(), working.Cols(), gocv.MatTypeCV8UC1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create result Mat: %w", err)
 	}
 
-	if err := p.applyThreshold(working, neighborhood, result, threshold, params); err != nil {
+	if err := p.applyThresholdFloat(working, neighborhood, result, threshold, params); err != nil {
 		result.Close()
 		return nil, fmt.Errorf("threshold application failed: %w", err)
 	}
 
 	return result, nil
+}
+
+func (p *Processor) build2DHistogramFloat(src, neighborhood *safe.Mat, params map[string]interface{}) [][]float64 {
+	histBins := p.getIntParam(params, "histogram_bins")
+	pixelWeightFactor := p.getFloatParam(params, "pixel_weight_factor")
+
+	histogram := make([][]float64, histBins)
+	for i := range histogram {
+		histogram[i] = make([]float64, histBins)
+	}
+
+	rows := src.Rows()
+	cols := src.Cols()
+	binScale := float64(histBins-1) / 255.0
+
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			pixelValue, err := src.GetUCharAt(y, x)
+			if err != nil {
+				continue
+			}
+
+			neighValue, err := neighborhood.GetUCharAt(y, x)
+			if err != nil {
+				continue
+			}
+
+			feature := pixelWeightFactor*float64(pixelValue) +
+				(1.0-pixelWeightFactor)*float64(neighValue)
+
+			pixelBinFloat := float64(pixelValue) * binScale
+			neighBinFloat := feature * binScale
+
+			pixelBin := int(pixelBinFloat)
+			neighBin := int(neighBinFloat)
+
+			if pixelBin < 0 {
+				pixelBin = 0
+			} else if pixelBin >= histBins {
+				pixelBin = histBins - 1
+			}
+
+			if neighBin < 0 {
+				neighBin = 0
+			} else if neighBin >= histBins {
+				neighBin = histBins - 1
+			}
+
+			histogram[pixelBin][neighBin]++
+		}
+	}
+
+	return histogram
+}
+
+func (p *Processor) find2DOtsuThresholdFloat(histogram [][]float64, params map[string]interface{}) [2]float64 {
+	histBins := len(histogram)
+	bestThreshold := [2]float64{float64(histBins) / 2.0, float64(histBins) / 2.0}
+	maxVariance := 0.0
+
+	totalSum := 0.0
+	totalCount := 0.0
+
+	for i := 0; i < histBins; i++ {
+		for j := 0; j < histBins; j++ {
+			weight := histogram[i][j]
+			totalSum += float64(i*histBins+j) * weight
+			totalCount += weight
+		}
+	}
+
+	if totalCount == 0 {
+		return bestThreshold
+	}
+
+	subPixelStep := 0.1
+	for t1 := 1.0; t1 < float64(histBins-1); t1 += subPixelStep {
+		for t2 := 1.0; t2 < float64(histBins-1); t2 += subPixelStep {
+			var w0, w1, sum0, sum1 float64
+
+			t1Int := int(t1)
+			t2Int := int(t2)
+
+			for i := 0; i <= t1Int; i++ {
+				for j := 0; j <= t2Int; j++ {
+					weight := histogram[i][j]
+
+					if float64(i) <= t1 && float64(j) <= t2 {
+						interpolationFactor := 1.0
+						if i == t1Int {
+							interpolationFactor *= (t1 - float64(t1Int))
+						}
+						if j == t2Int {
+							interpolationFactor *= (t2 - float64(t2Int))
+						}
+
+						weightInterpolated := weight * interpolationFactor
+						w0 += weightInterpolated
+						sum0 += float64(i*histBins+j) * weightInterpolated
+					}
+				}
+			}
+
+			for i := t1Int + 1; i < histBins; i++ {
+				for j := t2Int + 1; j < histBins; j++ {
+					weight := histogram[i][j]
+					w1 += weight
+					sum1 += float64(i*histBins+j) * weight
+				}
+			}
+
+			if w0 > 0 && w1 > 0 {
+				mean0 := sum0 / w0
+				mean1 := sum1 / w1
+				meanDiff := mean0 - mean1
+
+				variance := w0 * w1 * meanDiff * meanDiff
+
+				if variance > maxVariance {
+					maxVariance = variance
+					bestThreshold = [2]float64{t1, t2}
+				}
+			}
+		}
+	}
+
+	return bestThreshold
+}
+
+func (p *Processor) applyThresholdFloat(src, neighborhood, dst *safe.Mat, threshold [2]float64, params map[string]interface{}) error {
+	histBins := p.getIntParam(params, "histogram_bins")
+	pixelWeightFactor := p.getFloatParam(params, "pixel_weight_factor")
+
+	rows := src.Rows()
+	cols := src.Cols()
+	binScale := float64(histBins-1) / 255.0
+
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			pixelValue, err := src.GetUCharAt(y, x)
+			if err != nil {
+				return fmt.Errorf("failed to get pixel at (%d,%d): %w", x, y, err)
+			}
+
+			neighValue, err := neighborhood.GetUCharAt(y, x)
+			if err != nil {
+				return fmt.Errorf("failed to get neighborhood pixel at (%d,%d): %w", x, y, err)
+			}
+
+			feature := pixelWeightFactor*float64(pixelValue) +
+				(1.0-pixelWeightFactor)*float64(neighValue)
+
+			pixelBin := float64(pixelValue) * binScale
+			neighBin := feature * binScale
+
+			var value uint8
+			if pixelBin > threshold[0] && neighBin > threshold[1] {
+				value = 255
+			} else {
+				value = 0
+			}
+
+			if err := dst.SetUCharAt(y, x, value); err != nil {
+				return fmt.Errorf("failed to set pixel at (%d,%d): %w", x, y, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (p *Processor) applyGaussianBlur(src *safe.Mat) (*safe.Mat, error) {

@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -16,14 +18,20 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
 	"github.com/rs/zerolog"
 )
 
 const (
 	AppName    = "Otsu Obliterator"
-	AppID      = "com.imageprocessing.otsuobliterator"
+	AppID      = "com.imageprocessing.otsu-obliterator"
 	AppVersion = "1.0.0"
 )
+
+// Force menu initialization to prevent dead code elimination
+var ForceMenuInit = true
 
 type shutdownHandler interface {
 	Shutdown()
@@ -41,9 +49,18 @@ type Application struct {
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 	shutdown      chan struct{}
+	menuSetup     bool // Track if menu was setup
 }
 
 func NewApplication() (*Application, error) {
+	// Set metadata BEFORE creating app instance
+	app.SetMetadata(fyne.AppMetadata{
+		ID:      AppID,
+		Name:    AppName,
+		Version: AppVersion,
+		Build:   1,
+	})
+
 	fyneApp := app.NewWithID(AppID)
 	window := fyneApp.NewWindow(AppName)
 
@@ -76,6 +93,8 @@ func NewApplication() (*Application, error) {
 
 	guiManager.SetProcessingCoordinator(coordinator)
 
+	// Force explicit menu setup before returning
+	log.Info("Application", "about to create application struct", nil)
 	application := &Application{
 		fyneApp:       fyneApp,
 		window:        window,
@@ -93,9 +112,77 @@ func NewApplication() (*Application, error) {
 		},
 	}
 
+	// Remove automatic setup calls - let Run() handle it
 	application.setupSignalHandling()
 	log.Info("Application", "initialization complete", nil)
 	return application, nil
+}
+
+func (a *Application) setupMenu() {
+	aboutAction := func() {
+		a.logger.Info("About", "menu action triggered", nil)
+		a.showAbout()
+	}
+
+	fileMenu := fyne.NewMenu("File")
+	helpMenu := fyne.NewMenu("Help",
+		fyne.NewMenuItem("About", aboutAction),
+	)
+
+	mainMenu := fyne.NewMainMenu(fileMenu, helpMenu)
+	a.window.SetMainMenu(mainMenu)
+
+	a.logger.Info("Application", "menu setup completed", map[string]interface{}{
+		"menus": []string{"File", "Help"},
+	})
+}
+
+func (a *Application) showAbout() {
+	metadata := a.fyneApp.Metadata()
+
+	// Debug logging
+	a.logger.Info("About", "metadata debug", map[string]interface{}{
+		"name":    metadata.Name,
+		"version": metadata.Version,
+		"build":   metadata.Build,
+		"id":      metadata.ID,
+	})
+
+	// Fallback to constants if metadata is empty (compiled binary)
+	name := metadata.Name
+	if name == "" {
+		name = AppName
+		a.logger.Info("About", "using fallback name", map[string]interface{}{"name": name})
+	}
+
+	version := metadata.Version
+	if version == "" {
+		version = AppVersion
+		a.logger.Info("About", "using fallback version", map[string]interface{}{"version": version})
+	}
+
+	build := fmt.Sprintf("%d", metadata.Build)
+	if metadata.Build == 0 {
+		build = "1"
+		a.logger.Info("About", "using fallback build", map[string]interface{}{"build": build})
+	}
+
+	aboutContent := container.NewVBox(
+		widget.NewLabel(name),
+		widget.NewLabel(fmt.Sprintf("Version: %s", version)),
+		widget.NewLabel(fmt.Sprintf("Build: %s", build)),
+		widget.NewLabel(""),
+		widget.NewLabel("Author: Ervins Strauhmanis"),
+		widget.NewLabel("License: MIT"),
+		widget.NewLabel("Year: 2025"),
+		widget.NewLabel(""),
+		widget.NewLabel("Runtime Info:"),
+		widget.NewLabel(fmt.Sprintf("Go: %s", runtime.Version())),
+		widget.NewLabel(fmt.Sprintf("Platform: %s/%s", runtime.GOOS, runtime.GOARCH)),
+		widget.NewLabel("OpenCV: 4.11.0+"),
+	)
+
+	dialog.ShowCustom("About", "Close", aboutContent, a.window)
 }
 
 func calculateMinimumWindowSize() fyne.Size {
@@ -130,6 +217,13 @@ func (a *Application) setupSignalHandling() {
 }
 
 func (a *Application) Run() error {
+	// Ensure menu is setup before running
+	if !a.menuSetup {
+		a.logger.Info("Application", "setting up menu in Run()", nil)
+		a.setupMenu()
+		a.menuSetup = true
+	}
+
 	a.window.SetCloseIntercept(func() {
 		a.logger.Info("Application", "shutdown requested via window close", nil)
 		a.initiateShutdown()
@@ -151,6 +245,12 @@ func (a *Application) Run() error {
 	a.fyneApp.Run()
 	a.wg.Wait()
 	return nil
+}
+
+func (a *Application) ForceMenuSetup() {
+	a.logger.Info("Application", "ForceMenuSetup called from main", nil)
+	a.setupMenu()
+	a.logger.Info("Application", "ForceMenuSetup completed", nil)
 }
 
 func (a *Application) initiateShutdown() {
