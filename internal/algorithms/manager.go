@@ -1,12 +1,28 @@
 package algorithms
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	"otsu-obliterator/internal/algorithms/otsu2d"
 	"otsu-obliterator/internal/algorithms/triclass"
+	"otsu-obliterator/internal/opencv/safe"
 )
+
+// Algorithm defines the interface for image processing algorithms
+type Algorithm interface {
+	Process(input *safe.Mat, params map[string]interface{}) (*safe.Mat, error)
+	ValidateParameters(params map[string]interface{}) error
+	GetDefaultParameters() map[string]interface{}
+	GetName() string
+}
+
+// ContextualAlgorithm extends Algorithm with context support for cancellation
+type ContextualAlgorithm interface {
+	Algorithm
+	ProcessWithContext(ctx context.Context, input *safe.Mat, params map[string]interface{}) (*safe.Mat, error)
+}
 
 type Manager struct {
 	algorithms       map[string]Algorithm

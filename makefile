@@ -1,9 +1,9 @@
-# Otsu Obliterator
-.PHONY: all build run clean deps test help
+# Otsu Obliterator - Memory-Aware Image Processing
+.PHONY: all build run clean deps test help bench lint format profile
 .DEFAULT_GOAL := help
 
-# Delegate to build.sh for actual work
-all: build
+# Performance and memory optimization targets
+all: deps lint test build
 
 build:
 	@./build.sh build
@@ -11,11 +11,17 @@ build:
 build-profile:
 	@./build.sh build profile
 
+build-debug:
+	@./build.sh build debug
+
 run:
 	@./build.sh run
 
-debug-safe:
-	@./build.sh debug safe
+debug:
+	@./build.sh debug basic
+
+debug-memory:
+	@./build.sh debug memory
 
 debug-all:
 	@./build.sh debug all
@@ -23,13 +29,22 @@ debug-all:
 test:
 	@./build.sh test
 
+bench:
+	@./build.sh bench
+
 clean:
 	@./build.sh clean
 
 deps:
 	@./build.sh deps
 
-# Cross-compilation targets
+format:
+	@./build.sh format
+
+lint:
+	@./build.sh lint
+
+# Cross-compilation targets for deployment
 build-windows:
 	@./build.sh build windows
 
@@ -42,35 +57,51 @@ build-macos-arm64:
 build-linux:
 	@./build.sh build linux
 
-# Development
-dev: deps build-profile
+# Development workflow
+dev: deps format lint test build-profile
 
-format:
-	@go fmt ./...
+# Performance analysis
+profile: build-profile
+	@echo "Building with profiling enabled. Use 'make run' to execute with memory tracking."
 
-vet:
-	@go vet ./...
+# Memory leak detection
+memcheck: build-debug
+	@echo "Running with memory debugging. Monitor output for MatProfile statistics."
+	@./build.sh debug memory
 
-lint:
-	@if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run; else echo "golangci-lint not found, skipping"; fi
+# Release preparation
+release: deps format lint test
+	@./build.sh build windows
+	@./build.sh build macos
+	@./build.sh build macos-arm64
+	@./build.sh build linux
+	@echo "Release builds completed in build/ directory"
 
 help:
-	@echo "Otsu Obliterator"
+	@echo "Otsu Obliterator - Memory-Aware Image Processing"
 	@echo ""
-	@echo "Primary targets:"
-	@echo "  build           Build application"
-	@echo "  run             Build and run"
-	@echo "  test            Run tests"
-	@echo "  clean           Clean artifacts"
-	@echo "  deps            Install dependencies"
+	@echo "Development targets:"
+	@echo "  build           Build application for current platform"
+	@echo "  run             Build and run with memory tracking"
+	@echo "  test            Run tests with coverage analysis"
+	@echo "  bench           Execute performance benchmarks"
+	@echo "  dev             Complete development workflow"
 	@echo ""
-	@echo "Debug:"
-	@echo "  debug-safe      Safe debugging"
-	@echo "  debug-all       Full debugging"
+	@echo "Memory and performance:"
+	@echo "  build-profile   Build with memory profiling"
+	@echo "  debug-memory    Run with memory leak detection"
+	@echo "  memcheck        Monitor Mat object lifecycle"
+	@echo "  profile         Enable CPU and memory profiling"
 	@echo ""
-	@echo "Cross-compile:"
-	@echo "  build-windows   Windows build"
-	@echo "  build-macos     macOS Intel build"
-	@echo "  build-linux     Linux build"
+	@echo "Code quality:"
+	@echo "  format          Format code and organize imports"
+	@echo "  lint            Run static analysis"
+	@echo "  clean           Remove build artifacts"
 	@echo ""
-	@echo "For more options: ./build.sh help"
+	@echo "Cross-platform builds:"
+	@echo "  build-windows   Windows x64 executable"
+	@echo "  build-macos     macOS Intel executable"
+	@echo "  build-linux     Linux x64 executable"
+	@echo "  release         Build all platform targets"
+	@echo ""
+	@echo "For detailed options: ./build.sh help"

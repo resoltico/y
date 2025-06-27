@@ -27,20 +27,11 @@ func (l *imageLoader) LoadFromReader(reader fyne.URIReadCloser) (*ImageData, err
 	originalURI := reader.URI()
 	uriExtension := strings.ToLower(filepath.Ext(originalURI.Path()))
 
-	l.logger.Debug("ImageLoader", "loading image", map[string]interface{}{
-		"path":      originalURI.Path(),
-		"extension": uriExtension,
-	})
-
 	bufferedReader := bufio.NewReader(reader)
 	data, err := io.ReadAll(bufferedReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read image data: %w", err)
 	}
-
-	l.logger.Debug("ImageLoader", "image data read", map[string]interface{}{
-		"size_bytes": len(data),
-	})
 
 	return l.LoadFromBytes(data, uriExtension)
 }

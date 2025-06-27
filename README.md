@@ -1,15 +1,14 @@
 # Otsu Obliterator
 
-A high-performance image processing application implementing advanced Otsu thresholding algorithms with a modern GUI.
+A high-performance image processing application implementing advanced Otsu thresholding algorithms with real-time preview and memory-safe OpenCV operations.
 
 ## Features
 
-- **2D Otsu Thresholding**: Advanced histogram-based segmentation with neighborhood analysis
-- **Iterative Triclass**: Multi-pass thresholding with convergence detection
-- **Real-time Preview**: Interactive parameter adjustment with instant feedback
-- **Cross-platform GUI**: Native desktop interface using Fyne
-- **Memory Management**: Thread-safe OpenCV Mat handling with pooling
-- **Performance Monitoring**: Built-in profiling and debug capabilities
+- **2D Otsu Thresholding** - Advanced implementation with neighborhood analysis
+- **Iterative Triclass** - Multi-threshold segmentation with convergence detection
+- **Real-time Preview** - Live parameter adjustment with immediate visual feedback
+- **Memory Safety** - Automatic OpenCV Mat lifecycle management with leak detection
+- **Cross-platform** - Native builds for Windows, macOS, and Linux
 
 ## Quick Start
 
@@ -17,166 +16,157 @@ A high-performance image processing application implementing advanced Otsu thres
 # Clone and build
 git clone <repository-url>
 cd otsu-obliterator
-chmod +x build.sh
 
-# Install dependencies and run
-make deps
-make run
+# Install dependencies
+./build.sh deps
+
+# Build and run immediately
+./build.sh build && ./build/otsu-obliterator
+```
+
+## Build Options
+
+### Production Builds
+```bash
+# Current platform
+./build.sh build && ./build/otsu-obliterator
+
+# Cross-platform
+./build.sh build windows && ./build/otsu-obliterator.exe
+./build.sh build macos-arm64 && ./build/otsu-obliterator-macos-arm64
+./build.sh build linux && ./build/otsu-obliterator-linux-amd64
+```
+
+### Development Builds
+```bash
+# With memory profiling
+./build.sh build profile && ./build/otsu-obliterator
+
+# Debug with race detection
+./build.sh debug memory
 ```
 
 ## Requirements
 
-- **Go 1.24+**
-- **OpenCV 4.11.0+** (for computer vision operations)
-- **pkg-config** (for OpenCV detection)
+- **Go 1.24+** - Required for modern language features
+- **OpenCV 4.11.0+** - Computer vision operations
+- **CGO enabled** - For OpenCV bindings
 
-### Platform-specific Setup
+### Platform-specific Installation
 
 **macOS:**
 ```bash
-brew install opencv pkg-config
+brew install opencv
 ```
 
 **Ubuntu/Debian:**
 ```bash
-sudo apt install libopencv-dev pkg-config
+sudo apt-get install libopencv-dev
 ```
 
 **Windows:**
-Install OpenCV and ensure pkg-config is available, or use pre-built binaries.
+Follow [GoCV installation guide](https://gocv.io/getting-started/)
 
 ## Usage
 
-### Basic Operations
-
-```bash
-# Build and run application
-make run
-
-# Build with profiling support
-make build-profile
-
-# Run with debugging
-make debug-safe    # Safe debugging (no pixel analysis)
-make debug-all     # Full debugging output
-```
+1. **Load Image** - Click Load button or drag image file
+2. **Select Algorithm** - Choose between 2D Otsu or Iterative Triclass
+3. **Adjust Parameters** - Use sliders for real-time tuning
+4. **Process** - Click Process button for thresholding
+5. **Save Result** - Export processed image in PNG/JPEG format
 
 ### Algorithm Parameters
 
 **2D Otsu:**
-- Window size (3-21, odd numbers)
-- Histogram bins (16-256)
-- Neighborhood metrics (mean, median, gaussian)
-- Pixel weight factor (0.0-1.0)
+- Window Size: Neighborhood analysis window (3-21, odd numbers)
+- Histogram Bins: Threshold precision (16-256)
+- Pixel Weight Factor: Balance between pixel and neighborhood values (0.0-1.0)
+- Smoothing Sigma: Gaussian smoothing strength (0.0-5.0)
 
 **Iterative Triclass:**
-- Threshold methods (otsu, mean, median)
-- Convergence epsilon (0.1-10.0)
-- Maximum iterations (1-20)
-- Gap factor (0.0-1.0)
+- Max Iterations: Convergence limit (1-20)
+- Convergence Epsilon: Threshold stability requirement (0.1-10.0)
+- Gap Factor: Separation between threshold classes (0.0-1.0)
+- Min TBD Fraction: Minimum "to be determined" pixel ratio (0.001-0.2)
 
-### Supported Formats
+## Performance
 
-**Input:** JPEG, PNG, TIFF, BMP, GIF, WebP
-**Output:** JPEG, PNG (with quality preservation)
+**Memory Management:**
+- Automatic OpenCV Mat cleanup prevents leaks
+- Pool-based object reuse reduces allocation overhead
+- Real-time memory monitoring with statistics
+
+**Processing Speed:**
+- Optimized histogram calculations
+- Context-based cancellation for responsiveness
+- Multi-threaded operations where applicable
 
 ## Development
 
-### Building
-
+### Build Workflow
 ```bash
-./build.sh help                    # Show all options
-./build.sh build                   # Standard build
-./build.sh build profile           # With profiling
-./build.sh build windows           # Cross-compile for Windows
+# Complete development cycle
+make dev
+
+# Individual steps
+./build.sh format  # Code formatting
+./build.sh lint    # Static analysis
+./build.sh test    # Unit tests with coverage
+./build.sh bench   # Performance benchmarks
+```
+
+### Memory Debugging
+```bash
+# Monitor Mat object lifecycle
+./build.sh debug memory
+
+# Check for memory leaks
+LOG_LEVEL=debug ./build/otsu-obliterator
 ```
 
 ### Testing
-
 ```bash
-make test                          # Run test suite
-./build.sh test                    # Alternative test runner
-```
+# Run tests with coverage
+./build.sh test
 
-### Debugging
-
-```bash
-./build.sh debug format            # Image format debugging
-./build.sh debug algorithms        # Algorithm execution tracing
-./build.sh debug memory            # Memory usage monitoring
-```
-
-### Cross-compilation
-
-```bash
-make build-windows                 # Windows executable
-make build-macos                   # macOS Intel binary
-make build-macos-arm64             # macOS Apple Silicon binary
-make build-linux                   # Linux binary
+# View coverage report
+open coverage.html
 ```
 
 ## Architecture
 
-```
-cmd/otsu-obliterator/      # Application entry point
-internal/
-├── algorithms/            # Processing algorithms
-│   ├── otsu2d/           # 2D Otsu implementation
-│   └── triclass/         # Iterative triclass algorithm
-├── app/                  # Application coordination
-├── gui/                  # Fyne-based interface
-├── opencv/               # OpenCV integration
-│   ├── safe/            # Thread-safe Mat wrappers
-│   ├── bridge/          # Go/OpenCV conversions
-│   └── memory/          # Memory management
-└── pipeline/             # Image processing pipeline
-```
-
-## Performance
-
-- **Memory pooling** reduces allocation overhead
-- **Concurrent processing** utilizes multiple CPU cores
-- **SIMD optimizations** through OpenCV acceleration
-- **Progressive rendering** for real-time preview
-
-## Profiling
-
-Enable profiling server:
-```bash
-make build-profile
-./build/otsu-obliterator &
-```
-
-Access profiling data:
-- Memory: http://localhost:6060/debug/pprof/heap
-- CPU: http://localhost:6060/debug/pprof/profile
-- Goroutines: http://localhost:6060/debug/pprof/goroutine
-
-## License
-
-[Specify your license here]
-
-## Contributing
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/algorithm-improvement`)
-3. Commit changes (`git commit -am 'Add histogram optimization'`)
-4. Push branch (`git push origin feature/algorithm-improvement`)
-5. Open Pull Request
+- **MVC Pattern** - Clean separation of GUI, business logic, and data
+- **Pipeline Processing** - Modular image processing workflow
+- **Memory Safety** - Wrapper around OpenCV Mat objects with automatic cleanup
+- **Context Propagation** - Cancellation and timeout support throughout
 
 ## Troubleshooting
 
-**Build fails with OpenCV errors:**
-- Verify OpenCV installation: `pkg-config --cflags opencv4`
-- Check Go version: `go version`
-- Ensure CGO is enabled: `go env CGO_ENABLED`
+**Build Issues:**
+```bash
+# Verify dependencies
+./build.sh deps
 
-**GUI doesn't start:**
-- Check display environment variables
-- Verify Fyne dependencies are installed
-- Run with debug flags: `./build.sh debug gui`
+# Clean and rebuild
+./build.sh clean && ./build.sh build
+```
 
-**Memory issues:**
-- Monitor with: `./build.sh debug memory`
-- Check available system memory
-- Reduce image sizes for testing
+**Runtime Issues:**
+- Ensure OpenCV is properly installed and accessible
+- Check that image files are in supported formats (PNG, JPEG, TIFF, BMP)
+- Monitor memory usage with debug builds if processing large images
+
+**Performance Issues:**
+- Use production builds (`./build.sh build`) not debug builds
+- Close unused images to free memory
+- Reduce histogram bins for faster processing on large images
+
+## License, Author
+
+MIT, Ervins Strauhmanis
+
+## Acknowledgments
+
+- Built with [GoCV](https://gocv.io/) for OpenCV bindings
+- GUI powered by [Fyne](https://fyne.io/)
+- Logging via [zerolog](https://github.com/rs/zerolog)

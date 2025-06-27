@@ -39,8 +39,8 @@ func NewMat(rows, cols int, matType gocv.MatType) (*Mat, error) {
 }
 
 func NewMatWithTracker(rows, cols int, matType gocv.MatType, memTracker MemoryTracker, tag string) (*Mat, error) {
-	if rows <= 0 || cols <= 0 {
-		return nil, fmt.Errorf("invalid dimensions: %dx%d", cols, rows)
+	if err := validateDimensions(rows, cols); err != nil {
+		return nil, err
 	}
 
 	mat := gocv.NewMatWithSize(rows, cols, matType)
@@ -74,12 +74,8 @@ func NewMatFromMat(srcMat gocv.Mat) (*Mat, error) {
 }
 
 func NewMatFromMatWithTracker(srcMat gocv.Mat, memTracker MemoryTracker, tag string) (*Mat, error) {
-	if srcMat.Empty() {
-		return nil, fmt.Errorf("source Mat is empty")
-	}
-
-	if srcMat.Rows() <= 0 || srcMat.Cols() <= 0 {
-		return nil, fmt.Errorf("source Mat has invalid dimensions: %dx%d", srcMat.Cols(), srcMat.Rows())
+	if err := validateSourceMat(srcMat); err != nil {
+		return nil, err
 	}
 
 	clonedMat := srcMat.Clone()
@@ -204,13 +200,8 @@ func (sm *Mat) GetUCharAt(row, col int) (uint8, error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	if !sm.IsValid() {
-		return 0, fmt.Errorf("Mat is invalid")
-	}
-
-	if row < 0 || row >= sm.mat.Rows() || col < 0 || col >= sm.mat.Cols() {
-		return 0, fmt.Errorf("coordinates out of bounds: (%d,%d) for size %dx%d",
-			col, row, sm.mat.Cols(), sm.mat.Rows())
+	if err := sm.validateCoordinates(row, col); err != nil {
+		return 0, err
 	}
 
 	return sm.mat.GetUCharAt(row, col), nil
@@ -220,13 +211,8 @@ func (sm *Mat) SetUCharAt(row, col int, value uint8) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if !sm.IsValid() {
-		return fmt.Errorf("Mat is invalid")
-	}
-
-	if row < 0 || row >= sm.mat.Rows() || col < 0 || col >= sm.mat.Cols() {
-		return fmt.Errorf("coordinates out of bounds: (%d,%d) for size %dx%d",
-			col, row, sm.mat.Cols(), sm.mat.Rows())
+	if err := sm.validateCoordinates(row, col); err != nil {
+		return err
 	}
 
 	sm.mat.SetUCharAt(row, col, value)
@@ -237,17 +223,8 @@ func (sm *Mat) GetUCharAt3(row, col, channel int) (uint8, error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	if !sm.IsValid() {
-		return 0, fmt.Errorf("Mat is invalid")
-	}
-
-	if row < 0 || row >= sm.mat.Rows() || col < 0 || col >= sm.mat.Cols() {
-		return 0, fmt.Errorf("coordinates out of bounds: (%d,%d) for size %dx%d",
-			col, row, sm.mat.Cols(), sm.mat.Rows())
-	}
-
-	if channel < 0 || channel >= sm.mat.Channels() {
-		return 0, fmt.Errorf("channel out of bounds: %d for %d channels", channel, sm.mat.Channels())
+	if err := sm.validateCoordinatesAndChannel(row, col, channel); err != nil {
+		return 0, err
 	}
 
 	return sm.mat.GetUCharAt3(row, col, channel), nil
@@ -257,17 +234,8 @@ func (sm *Mat) SetUCharAt3(row, col, channel int, value uint8) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if !sm.IsValid() {
-		return fmt.Errorf("Mat is invalid")
-	}
-
-	if row < 0 || row >= sm.mat.Rows() || col < 0 || col >= sm.mat.Cols() {
-		return fmt.Errorf("coordinates out of bounds: (%d,%d) for size %dx%d",
-			col, row, sm.mat.Cols(), sm.mat.Rows())
-	}
-
-	if channel < 0 || channel >= sm.mat.Channels() {
-		return fmt.Errorf("channel out of bounds: %d for %d channels", channel, sm.mat.Channels())
+	if err := sm.validateCoordinatesAndChannel(row, col, channel); err != nil {
+		return err
 	}
 
 	sm.mat.SetUCharAt3(row, col, channel, value)
@@ -294,6 +262,21 @@ func (sm *Mat) Release() {
 	}
 }
 
+func (sm *Mat) Reset() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if !sm.mat.Empty() {
+		sm.mat.Close()
+	}
+	sm.mat = gocv.Mat{}
+	atomic.StoreInt32(&sm.isValid, 0)
+	atomic.StoreInt32(&sm.refCount, 0)
+	sm.memTracker = nil
+	sm.tag = ""
+	sm.id = 0
+}
+
 func (sm *Mat) Close() {
 	if !atomic.CompareAndSwapInt32(&sm.isValid, 1, 0) {
 		return // Already closed
@@ -312,8 +295,6 @@ func (sm *Mat) Close() {
 	}
 
 	runtime.SetFinalizer(sm, nil)
-
-	// Reset only the mat and tracking fields, keep mutex intact
 	sm.mat = gocv.Mat{}
 	sm.memTracker = nil
 	sm.tag = ""
@@ -325,6 +306,110 @@ func (sm *Mat) finalize() {
 	if atomic.LoadInt32(&sm.isValid) == 1 {
 		sm.Close()
 	}
+}
+
+func (sm *Mat) validateCoordinates(row, col int) error {
+	if !sm.IsValid() {
+		return fmt.Errorf("Mat is invalid")
+	}
+
+	if row < 0 || row >= sm.mat.Rows() || col < 0 || col >= sm.mat.Cols() {
+		return fmt.Errorf("coordinates out of bounds: (%d,%d) for size %dx%d",
+			col, row, sm.mat.Cols(), sm.mat.Rows())
+	}
+
+	return nil
+}
+
+func (sm *Mat) validateCoordinatesAndChannel(row, col, channel int) error {
+	if err := sm.validateCoordinates(row, col); err != nil {
+		return err
+	}
+
+	if channel < 0 || channel >= sm.mat.Channels() {
+		return fmt.Errorf("channel out of bounds: %d for %d channels", channel, sm.mat.Channels())
+	}
+
+	return nil
+}
+
+// Validation functions
+func validateDimensions(rows, cols int) error {
+	if rows <= 0 || cols <= 0 {
+		return fmt.Errorf("invalid dimensions: %dx%d", cols, rows)
+	}
+
+	if rows > 32768 || cols > 32768 {
+		return fmt.Errorf("dimensions %dx%d exceed maximum size", cols, rows)
+	}
+
+	return nil
+}
+
+func validateSourceMat(srcMat gocv.Mat) error {
+	if srcMat.Empty() {
+		return fmt.Errorf("source Mat is empty")
+	}
+
+	if srcMat.Rows() <= 0 || srcMat.Cols() <= 0 {
+		return fmt.Errorf("source Mat has invalid dimensions: %dx%d", srcMat.Cols(), srcMat.Rows())
+	}
+
+	return nil
+}
+
+func ValidateMatForOperation(mat *Mat, operation string) error {
+	if mat == nil {
+		return fmt.Errorf("Mat is nil for operation: %s", operation)
+	}
+
+	if !mat.IsValid() {
+		return fmt.Errorf("Mat is invalid for operation: %s", operation)
+	}
+
+	if mat.Empty() {
+		return fmt.Errorf("Mat is empty for operation: %s", operation)
+	}
+
+	if mat.Rows() <= 0 || mat.Cols() <= 0 {
+		return fmt.Errorf("Mat has invalid dimensions %dx%d for operation: %s",
+			mat.Cols(), mat.Rows(), operation)
+	}
+
+	return nil
+}
+
+func ValidateColorConversion(src *Mat, code gocv.ColorConversionCode) error {
+	if err := ValidateMatForOperation(src, "CvtColor"); err != nil {
+		return err
+	}
+
+	channels := src.Channels()
+
+	switch code {
+	case gocv.ColorBGRToGray, gocv.ColorRGBToGray:
+		if channels != 3 {
+			return fmt.Errorf("BGR/RGB to Gray conversion requires 3 channels, got %d", channels)
+		}
+	case gocv.ColorGrayToBGR:
+		if channels != 1 {
+			return fmt.Errorf("Gray to BGR conversion requires 1 channel, got %d", channels)
+		}
+	case gocv.ColorBGRToRGB:
+		if channels != 3 {
+			return fmt.Errorf("BGR/RGB conversion requires 3 channels, got %d", channels)
+		}
+	case gocv.ColorBGRToBGRA:
+		if channels != 3 {
+			return fmt.Errorf("BGR to BGRA conversion requires 3 channels, got %d", channels)
+		}
+	case gocv.ColorBGRAToBGR:
+		if channels != 4 {
+			return fmt.Errorf("BGRA to BGR conversion requires 4 channels, got %d", channels)
+		}
+	}
+
+	return nil
 }
 
 func getMatTypeSize(matType gocv.MatType) int {

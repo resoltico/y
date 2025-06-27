@@ -26,12 +26,6 @@ func (p *imageProcessor) ProcessImage(inputData *ImageData, algorithm algorithms
 }
 
 func (p *imageProcessor) ProcessImageWithContext(ctx context.Context, inputData *ImageData, algorithm algorithms.Algorithm, params map[string]interface{}) (*ImageData, error) {
-	p.logger.Debug("ImageProcessor", "processing started", map[string]interface{}{
-		"algorithm": algorithm.GetName(),
-		"width":     inputData.Width,
-		"height":    inputData.Height,
-	})
-
 	if err := safe.ValidateMatForOperation(inputData.Mat, "ProcessImage"); err != nil {
 		return nil, fmt.Errorf("input validation failed: %w", err)
 	}
@@ -58,14 +52,6 @@ func (p *imageProcessor) ProcessImageWithContext(ctx context.Context, inputData 
 	if resultMat == nil {
 		return nil, fmt.Errorf("algorithm returned nil result")
 	}
-
-	p.logger.Debug("ImageProcessor", "result Mat created", map[string]interface{}{
-		"rows":     resultMat.Rows(),
-		"cols":     resultMat.Cols(),
-		"channels": resultMat.Channels(),
-		"empty":    resultMat.Empty(),
-		"valid":    resultMat.IsValid(),
-	})
 
 	select {
 	case <-ctx.Done():

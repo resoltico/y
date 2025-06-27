@@ -57,74 +57,37 @@ func (c *Controller) initializeDefaultParameters() {
 }
 
 func (c *Controller) LoadImage() {
-	c.logger.Debug("Controller", "LoadImage called", nil)
-
 	c.view.ShowFileDialog(func(reader fyne.URIReadCloser, err error) {
-		c.logger.Debug("Controller", "file dialog callback", map[string]interface{}{
-			"reader_nil": reader == nil,
-			"error":      err != nil,
-			"uri": func() string {
-				if reader != nil {
-					return reader.URI().String()
-				} else {
-					return "nil"
-				}
-			}(),
-		})
-
 		if err != nil {
 			c.handleError("File selection error", err)
 			return
 		}
 		if reader == nil {
-			c.logger.Debug("Controller", "file dialog cancelled", nil)
 			return
 		}
 
-		c.logger.Debug("Controller", "starting goroutine for image load", nil)
 		c.updateStatus("Loading image...")
 
 		go func() {
 			defer reader.Close()
 
-			c.logger.Debug("Controller", "inside load goroutine", nil)
-
 			start := time.Now()
 			imageData, loadErr := c.coordinator.LoadImage(reader)
 
-			c.logger.Debug("Controller", "coordinator.LoadImage returned", map[string]interface{}{
-				"error": loadErr != nil,
-			})
-
 			fyne.Do(func() {
-				c.logger.Debug("Controller", "inside fyne.Do", nil)
-
 				if loadErr != nil {
 					c.handleError("Image load error", loadErr)
 					c.updateStatus("Ready")
 					return
 				}
 
-				c.logger.Debug("Controller", "before setting original image", map[string]interface{}{
-					"width":  imageData.Width,
-					"height": imageData.Height,
-					"format": imageData.Format,
-				})
-
 				// Clear any existing processed image when loading new original
 				c.view.SetPreviewImage(nil)
-				c.logger.Debug("Controller", "cleared preview image", nil)
-
 				c.view.SetOriginalImage(imageData.Image)
-				c.logger.Debug("Controller", "set original image", map[string]interface{}{
-					"image_type": fmt.Sprintf("%T", imageData.Image),
-				})
-
 				c.updateStatus("Image loaded")
 
-				// Force UI refresh
+				// Refresh UI
 				c.view.GetMainContainer().Refresh()
-				c.logger.Debug("Controller", "refreshed main container", nil)
 
 				c.logger.Info("Controller", "image loaded", map[string]interface{}{
 					"width":     imageData.Width,
@@ -181,10 +144,6 @@ func (c *Controller) ChangeAlgorithm(algorithm string) {
 	fyne.Do(func() {
 		c.view.UpdateParameterPanel(algorithm, params)
 	})
-
-	c.logger.Debug("Controller", "algorithm changed", map[string]interface{}{
-		"algorithm": algorithm,
-	})
 }
 
 func (c *Controller) UpdateParameter(name string, value interface{}) {
@@ -198,17 +157,10 @@ func (c *Controller) UpdateParameter(name string, value interface{}) {
 		c.handleError("Parameter update error", err)
 		return
 	}
-
-	c.logger.Debug("Controller", "parameter updated", map[string]interface{}{
-		"algorithm": algorithm,
-		"parameter": name,
-		"value":     value,
-	})
 }
 
 func (c *Controller) ProcessImage() {
 	if c.isProcessing() {
-		c.logger.Debug("Controller", "processing already active", nil)
 		return
 	}
 
@@ -242,39 +194,18 @@ func (c *Controller) ProcessImage() {
 		algorithm := c.getCurrentAlgorithm()
 		params := c.getCurrentParameters()
 
-		c.logger.Info("Controller", "processing started", map[string]interface{}{
-			"algorithm": algorithm,
-		})
-
 		start := time.Now()
 		processedImg, err := c.coordinator.ProcessImage(algorithm, params)
 		processingTime := time.Since(start)
-
-		c.logger.Debug("Controller", "processing result received", map[string]interface{}{
-			"algorithm":   algorithm,
-			"error":       err != nil,
-			"result_nil":  processedImg == nil,
-			"context_err": ctx.Err() != nil,
-		})
 
 		fyne.Do(func() {
 			if err != nil {
 				c.handleError("Processing error", err)
 				c.updateStatus("Processing failed")
-				c.logger.Debug("Controller", "processing failed", map[string]interface{}{
-					"error": err.Error(),
-				})
 				return
 			}
 
 			if processedImg != nil {
-				c.logger.Debug("Controller", "setting preview image", map[string]interface{}{
-					"image_type": fmt.Sprintf("%T", processedImg.Image),
-					"width":      processedImg.Width,
-					"height":     processedImg.Height,
-					"image_nil":  processedImg.Image == nil,
-				})
-
 				c.view.SetPreviewImage(processedImg.Image)
 				c.updateMetrics(originalImg, processedImg)
 				c.updateStatus("Processing completed")
@@ -286,9 +217,6 @@ func (c *Controller) ProcessImage() {
 					"processing_time": processingTime,
 				})
 			} else {
-				c.logger.Error("Controller", fmt.Errorf("processed image is nil"), map[string]interface{}{
-					"algorithm": algorithm,
-				})
 				c.updateStatus("Processing failed - no result")
 			}
 		})
@@ -389,7 +317,6 @@ func (c *Controller) saveImageWithFormat(imagePath string, processedImg *pipelin
 
 		finalPath := imagePath + ext
 
-		// Use standard file creation instead of Fyne storage
 		file, err := os.Create(finalPath)
 		if err != nil {
 			fyne.Do(func() {

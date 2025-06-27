@@ -48,12 +48,6 @@ func (s *imageSaver) SaveToWriter(writer io.Writer, imageData *ImageData, format
 		saveFormat = "png"
 	}
 
-	s.logger.Debug("ImageSaver", "saving image", map[string]interface{}{
-		"format": saveFormat,
-		"width":  imageData.Width,
-		"height": imageData.Height,
-	})
-
 	var err error
 	switch saveFormat {
 	case "jpeg":

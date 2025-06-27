@@ -3,7 +3,6 @@ package widgets
 import (
 	"fmt"
 	"image/color"
-	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -27,8 +26,6 @@ type Toolbar struct {
 	processHandler         func()
 	algorithmChangeHandler func(string)
 	qualityChangeHandler   func(string)
-
-	builder strings.Builder
 }
 
 func NewToolbar() *Toolbar {
@@ -115,12 +112,8 @@ func (t *Toolbar) buildLayout() {
 }
 
 func (t *Toolbar) onLoadClicked() {
-	fmt.Printf("DEBUG: Load button clicked\n")
 	if t.loadHandler != nil {
-		fmt.Printf("DEBUG: Calling load handler\n")
 		t.loadHandler()
-	} else {
-		fmt.Printf("DEBUG: No load handler set\n")
 	}
 }
 
@@ -182,12 +175,8 @@ func (t *Toolbar) SetProgress(progress string) {
 
 func (t *Toolbar) SetMetrics(psnr, ssim float64) {
 	if psnr > 0 && ssim > 0 {
-		t.builder.Reset()
-		t.builder.WriteString("PSNR: ")
-		t.builder.WriteString(fmt.Sprintf("%.2f", psnr))
-		t.builder.WriteString(" dB | SSIM: ")
-		t.builder.WriteString(fmt.Sprintf("%.4f", ssim))
-		t.metricsLabel.SetText(t.builder.String())
+		text := fmt.Sprintf("PSNR: %.2f dB | SSIM: %.4f", psnr, ssim)
+		t.metricsLabel.SetText(text)
 	} else {
 		t.metricsLabel.SetText("PSNR: -- | SSIM: --")
 	}

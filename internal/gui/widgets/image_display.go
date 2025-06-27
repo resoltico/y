@@ -2,7 +2,6 @@ package widgets
 
 import (
 	"image"
-	"log"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -64,34 +63,14 @@ func (id *ImageDisplay) GetContainer() fyne.CanvasObject {
 }
 
 func (id *ImageDisplay) SetOriginalImage(img image.Image) {
-	log.Printf("DEBUG: ImageDisplay.SetOriginalImage called, img == nil: %v", img == nil)
-
-	if img == nil {
-		id.originalImage.Image = nil
-		log.Printf("DEBUG: Set originalImage.Image to nil")
-	} else {
-		id.originalImage.Image = img
-		log.Printf("DEBUG: Set originalImage.Image to %T, bounds: %v", img, img.Bounds())
-	}
-
+	id.originalImage.Image = img
 	id.originalImage.Refresh()
 	id.container.Refresh()
-	log.Printf("DEBUG: Called originalImage.Refresh() and container.Refresh()")
 }
 
 func (id *ImageDisplay) SetPreviewImage(img image.Image) {
-	log.Printf("DEBUG: ImageDisplay.SetPreviewImage called, img == nil: %v", img == nil)
-
-	if img == nil {
-		id.previewImage.Image = nil
-		log.Printf("DEBUG: Set previewImage.Image to nil")
-	} else {
-		id.previewImage.Image = img
-		log.Printf("DEBUG: Set previewImage.Image to %T, bounds: %v", img, img.Bounds())
-	}
-
+	id.previewImage.Image = img
 	id.previewImage.Refresh()
-	log.Printf("DEBUG: Called previewImage.Refresh()")
 }
 
 func (id *ImageDisplay) GetSplitView() *container.Split {

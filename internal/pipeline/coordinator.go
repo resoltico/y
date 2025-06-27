@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"image"
 	"io"
 	"strings"
 	"sync"
@@ -11,9 +12,73 @@ import (
 	"otsu-obliterator/internal/algorithms"
 	"otsu-obliterator/internal/logger"
 	"otsu-obliterator/internal/opencv/memory"
+	"otsu-obliterator/internal/opencv/safe"
 
 	"fyne.io/fyne/v2"
+	"gocv.io/x/gocv"
 )
+
+// ImageProcessor defines the contract for image processing algorithms
+type ImageProcessor interface {
+	ProcessImage(inputData *ImageData, algorithm algorithms.Algorithm, params map[string]interface{}) (*ImageData, error)
+	ProcessImageWithContext(ctx context.Context, inputData *ImageData, algorithm algorithms.Algorithm, params map[string]interface{}) (*ImageData, error)
+}
+
+// ImageLoader handles loading images from various sources
+type ImageLoader interface {
+	LoadFromReader(reader fyne.URIReadCloser) (*ImageData, error)
+	LoadFromBytes(data []byte, format string) (*ImageData, error)
+}
+
+// ImageSaver handles saving images to various formats
+type ImageSaver interface {
+	SaveToWriter(writer io.Writer, imageData *ImageData, format string) error
+	SaveToPath(path string, imageData *ImageData) error
+}
+
+// ProcessingCoordinator manages the image processing pipeline
+type ProcessingCoordinator interface {
+	LoadImage(reader fyne.URIReadCloser) (*ImageData, error)
+	ProcessImage(algorithmName string, params map[string]interface{}) (*ImageData, error)
+	ProcessImageWithContext(ctx context.Context, algorithmName string, params map[string]interface{}) (*ImageData, error)
+	SaveImage(writer fyne.URIWriteCloser, imageData *ImageData) error
+	SaveImageToWriter(writer io.Writer, imageData *ImageData, format string) error
+	GetOriginalImage() *ImageData
+	GetProcessedImage() *ImageData
+	CalculatePSNR(original, processed *ImageData) float64
+	CalculateSSIM(original, processed *ImageData) float64
+	Context() context.Context
+	Cancel()
+}
+
+// MemoryManager handles OpenCV Mat memory management
+type MemoryManager interface {
+	GetMat(rows, cols int, matType gocv.MatType, tag string) (*safe.Mat, error)
+	ReleaseMat(mat *safe.Mat, tag string)
+	GetUsedMemory() int64
+	GetStats() (allocCount, deallocCount int64, usedMemory int64)
+	Cleanup()
+}
+
+// ImageData represents processed image information
+type ImageData struct {
+	Image       image.Image
+	Mat         *safe.Mat
+	Width       int
+	Height      int
+	Channels    int
+	Format      string
+	OriginalURI fyne.URI
+}
+
+// ProcessingMetrics contains algorithm performance data
+type ProcessingMetrics struct {
+	ProcessingTime float64
+	MemoryUsed     int64
+	PSNR           float64
+	SSIM           float64
+	ThresholdValue float64
+}
 
 type Coordinator struct {
 	mu               sync.RWMutex
@@ -46,49 +111,43 @@ func NewCoordinator(memMgr *memory.Manager, log logger.Logger) *Coordinator {
 		logger:        log,
 	}
 
+	coord.processor = &imageProcessor{
+		memoryManager:    memMgr,
+		logger:           log,
+		algorithmManager: algMgr,
+	}
+
 	coord.saver = &imageSaver{
 		logger: log,
 	}
 
 	log.Info("PipelineCoordinator", "initialized", nil)
-
 	return coord
 }
 
 func (c *Coordinator) LoadImage(reader fyne.URIReadCloser) (*ImageData, error) {
-	c.logger.Debug("PipelineCoordinator", "LoadImage called, attempting lock", nil)
-
 	c.mu.Lock()
-	c.logger.Debug("PipelineCoordinator", "lock acquired", nil)
-	defer func() {
-		c.mu.Unlock()
-		c.logger.Debug("PipelineCoordinator", "lock released", nil)
-	}()
+	defer c.mu.Unlock()
 
 	start := time.Now()
 
 	// Clean up previous images before loading new one
 	if c.originalImage != nil && c.originalImage.Mat != nil {
-		c.logger.Debug("PipelineCoordinator", "releasing original image", nil)
 		matToRelease := c.originalImage.Mat
 		c.originalImage = nil
 		go func() {
 			c.memoryManager.ReleaseMat(matToRelease, "original_image")
 		}()
-		c.logger.Debug("PipelineCoordinator", "original image release queued", nil)
 	}
 
 	if c.processedImage != nil && c.processedImage.Mat != nil {
-		c.logger.Debug("PipelineCoordinator", "releasing processed image", nil)
 		matToRelease := c.processedImage.Mat
 		c.processedImage = nil
 		go func() {
 			c.memoryManager.ReleaseMat(matToRelease, "processed_image")
 		}()
-		c.logger.Debug("PipelineCoordinator", "processed image release queued", nil)
 	}
 
-	c.logger.Debug("PipelineCoordinator", "calling loader.LoadFromReader", nil)
 	imageData, err := c.loader.LoadFromReader(reader)
 	if err != nil {
 		c.logger.Error("PipelineCoordinator", err, map[string]interface{}{
@@ -130,14 +189,8 @@ func (c *Coordinator) ProcessImageWithContext(ctx context.Context, algorithmName
 		return nil, fmt.Errorf("failed to get algorithm: %w", err)
 	}
 
-	processor := &imageProcessor{
-		memoryManager:    c.memoryManager,
-		logger:           c.logger,
-		algorithmManager: c.algorithmManager,
-	}
-
 	start := time.Now()
-	processedData, err := processor.ProcessImageWithContext(ctx, c.originalImage, algorithm, params)
+	processedData, err := c.processor.ProcessImageWithContext(ctx, c.originalImage, algorithm, params)
 	if err != nil {
 		c.logger.Error("PipelineCoordinator", err, map[string]interface{}{
 			"algorithm": algorithmName,

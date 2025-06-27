@@ -1,9 +1,9 @@
 package memory
 
 import (
+	"context"
 	"fmt"
 	"runtime"
-	"sort"
 	"sync"
 	"time"
 
@@ -21,6 +21,9 @@ type Manager struct {
 	allocCount   int64
 	deallocCount int64
 	activeMats   map[uint64]*MatInfo
+	matPool      sync.Pool
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 type MatInfo struct {
@@ -31,15 +34,27 @@ type MatInfo struct {
 }
 
 func NewManager(log logger.Logger) *Manager {
-	return &Manager{
+	ctx, cancel := context.WithCancel(context.Background())
+
+	manager := &Manager{
 		logger:     log,
 		maxMemory:  2 * 1024 * 1024 * 1024, // 2GB limit
 		activeMats: make(map[uint64]*MatInfo),
+		ctx:        ctx,
+		cancel:     cancel,
+		matPool: sync.Pool{
+			New: func() interface{} {
+				return &safe.Mat{}
+			},
+		},
 	}
+
+	go manager.monitorMemory()
+	return manager
 }
 
 func (m *Manager) GetMat(rows, cols int, matType gocv.MatType, tag string) (*safe.Mat, error) {
-	size := int64(rows * cols * m.getMatTypeSize(matType))
+	size := int64(rows * cols * getMatTypeSize(matType))
 
 	m.mu.Lock()
 	if m.usedMemory+size > m.maxMemory {
@@ -66,18 +81,22 @@ func (m *Manager) GetMat(rows, cols int, matType gocv.MatType, tag string) (*saf
 	}
 	m.mu.Unlock()
 
-	m.logger.Debug("MemoryManager", "created new Mat", map[string]interface{}{
-		"tag":          tag,
-		"size":         size,
-		"total_allocs": m.allocCount,
-		"used_memory":  m.usedMemory,
-	})
-
 	return mat, nil
 }
 
+func (m *Manager) GetPooledMat() *safe.Mat {
+	return m.matPool.Get().(*safe.Mat)
+}
+
+func (m *Manager) ReturnPooledMat(mat *safe.Mat) {
+	if mat != nil {
+		mat.Reset()
+		m.matPool.Put(mat)
+	}
+}
+
 func (m *Manager) TrackAllocation(ptr uintptr, size int64, tag string) {
-	// Tracking is handled in GetMat for better control
+	// Already handled in GetMat for better control
 }
 
 func (m *Manager) TrackDeallocation(ptr uintptr, tag string) {
@@ -92,18 +111,11 @@ func (m *Manager) ReleaseMat(mat *safe.Mat, tag string) {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if info, exists := m.activeMats[mat.ID()]; exists {
 		delete(m.activeMats, mat.ID())
 		m.usedMemory -= info.Size
-
-		m.logger.Debug("MemoryManager", "released Mat", map[string]interface{}{
-			"tag":         tag,
-			"size":        info.Size,
-			"used_memory": m.usedMemory,
-		})
 	}
+	m.mu.Unlock()
 
 	mat.Close()
 }
@@ -126,38 +138,46 @@ func (m *Manager) GetActiveMatCount() int {
 	return len(m.activeMats)
 }
 
-func (m *Manager) MonitorMemory() {
+func (m *Manager) monitorMemory() {
 	ticker := time.NewTicker(30 * time.Second)
-	go func() {
-		defer ticker.Stop()
-		for range ticker.C {
-			alloc, dealloc, used := m.GetStats()
-			activeCount := m.GetActiveMatCount()
+	defer ticker.Stop()
 
-			m.logger.Debug("MemoryManager", "memory stats", map[string]interface{}{
-				"allocations":    alloc,
-				"deallocations":  dealloc,
-				"used_bytes":     used,
-				"active_mats":    activeCount,
-				"gocv_mat_count": gocv.MatProfile.Count(),
-			})
-
-			if gocv.MatProfile.Count() > 100 {
-				m.logger.Warning("MemoryManager", "potential memory leak detected", map[string]interface{}{
-					"gocv_mat_count": gocv.MatProfile.Count(),
-					"active_mats":    activeCount,
-				})
-			}
-
-			if activeCount > 50 {
-				m.logOldestMats(5)
-			}
-
-			if used > m.maxMemory*8/10 { // 80% threshold
-				runtime.GC()
-			}
+	for {
+		select {
+		case <-ticker.C:
+			m.performMonitoringCheck()
+		case <-m.ctx.Done():
+			return
 		}
-	}()
+	}
+}
+
+func (m *Manager) performMonitoringCheck() {
+	alloc, dealloc, used := m.GetStats()
+	activeCount := m.GetActiveMatCount()
+
+	m.logger.Debug("MemoryManager", "memory statistics", map[string]interface{}{
+		"allocations":    alloc,
+		"deallocations":  dealloc,
+		"used_bytes":     used,
+		"active_mats":    activeCount,
+		"gocv_mat_count": gocv.MatProfile.Count(),
+	})
+
+	if gocv.MatProfile.Count() > 100 {
+		m.logger.Warning("MemoryManager", "many Mat objects detected", map[string]interface{}{
+			"gocv_mat_count": gocv.MatProfile.Count(),
+			"active_mats":    activeCount,
+		})
+	}
+
+	if activeCount > 50 {
+		m.logOldestMats(5)
+	}
+
+	if used > m.maxMemory*8/10 { // 80% threshold
+		runtime.GC()
+	}
 }
 
 func (m *Manager) logOldestMats(count int) {
@@ -183,9 +203,14 @@ func (m *Manager) logOldestMats(count int) {
 		})
 	}
 
-	sort.Slice(ages, func(i, j int) bool {
-		return ages[i].age > ages[j].age
-	})
+	// Sort by age descending
+	for i := 0; i < len(ages)-1; i++ {
+		for j := i + 1; j < len(ages); j++ {
+			if ages[i].age < ages[j].age {
+				ages[i], ages[j] = ages[j], ages[i]
+			}
+		}
+	}
 
 	limit := count
 	if len(ages) < limit {
@@ -203,7 +228,7 @@ func (m *Manager) logOldestMats(count int) {
 }
 
 func (m *Manager) Shutdown() {
-	m.logger.Info("MemoryManager", "shutdown initiated", nil)
+	m.cancel()
 	m.Cleanup()
 }
 
@@ -229,7 +254,7 @@ func (m *Manager) Cleanup() {
 	runtime.GC()
 }
 
-func (m *Manager) getMatTypeSize(matType gocv.MatType) int {
+func getMatTypeSize(matType gocv.MatType) int {
 	switch matType {
 	case gocv.MatTypeCV8UC1:
 		return 1

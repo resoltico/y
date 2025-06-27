@@ -3,7 +3,7 @@ package logger
 import (
 	"io"
 	"os"
-	
+
 	"github.com/rs/zerolog"
 )
 
@@ -57,11 +57,3 @@ func (z *ZerologAdapter) Debug(component, message string, fields map[string]inte
 	}
 	event.Msg(message)
 }
-
-// NoOpLogger provides silent implementation for production
-type NoOpLogger struct{}
-
-func (n NoOpLogger) Info(component, message string, fields map[string]interface{})    {}
-func (n NoOpLogger) Error(component string, err error, fields map[string]interface{}) {}
-func (n NoOpLogger) Warning(component, message string, fields map[string]interface{}) {}
-func (n NoOpLogger) Debug(component, message string, fields map[string]interface{})   {}
