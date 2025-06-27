@@ -87,9 +87,10 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 		return nil, fmt.Errorf("parameter validation failed: %w", err)
 	}
 
-	// Check for cancellation
-	if ctx.Err() != nil {
+	select {
+	case <-ctx.Done():
 		return nil, ctx.Err()
+	default:
 	}
 
 	gray, err := conversion.ConvertToGrayscale(input)
@@ -98,10 +99,11 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 	}
 	defer gray.Close()
 
-	// Apply Gaussian preprocessing if enabled
 	working := gray
+	var blurred *safe.Mat
+
 	if p.getBoolParam(params, "gaussian_preprocessing") {
-		blurred, err := p.applyGaussianBlur(gray)
+		blurred, err = p.applyGaussianBlur(gray)
 		if err != nil {
 			return nil, fmt.Errorf("gaussian preprocessing failed: %w", err)
 		}
@@ -109,18 +111,17 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 		defer blurred.Close()
 	}
 
-	// Check for cancellation after preprocessing
-	if ctx.Err() != nil {
+	select {
+	case <-ctx.Done():
 		return nil, ctx.Err()
+	default:
 	}
 
+	var enhanced *safe.Mat
 	if p.getBoolParam(params, "apply_contrast_enhancement") {
-		enhanced, err := p.applyCLAHE(working)
+		enhanced, err = p.applyCLAHE(working)
 		if err != nil {
 			return nil, fmt.Errorf("contrast enhancement failed: %w", err)
-		}
-		if working != gray {
-			working.Close()
 		}
 		working = enhanced
 		defer enhanced.Close()
@@ -132,9 +133,10 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 	}
 	defer neighborhood.Close()
 
-	// Check for cancellation before histogram processing
-	if ctx.Err() != nil {
+	select {
+	case <-ctx.Done():
 		return nil, ctx.Err()
+	default:
 	}
 
 	histogram := p.build2DHistogram(working, neighborhood, params)
@@ -176,7 +178,6 @@ func (p *Processor) applyGaussianBlur(src *safe.Mat) (*safe.Mat, error) {
 	srcMat := src.GetMat()
 	dstMat := dst.GetMat()
 
-	// Apply Gaussian blur with kernel size 5x5 for noise reduction
 	gocv.GaussianBlur(srcMat, &dstMat, image.Point{X: 5, Y: 5}, 1.0, 1.0, gocv.BorderDefault)
 
 	return dst, nil

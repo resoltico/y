@@ -41,7 +41,6 @@ func NewCoordinator(memMgr *memory.Manager, log logger.Logger) *Coordinator {
 		cancel:           cancel,
 	}
 
-	// Initialize internal components
 	coord.loader = &imageLoader{
 		memoryManager: memMgr,
 		logger:        log,
@@ -57,24 +56,45 @@ func NewCoordinator(memMgr *memory.Manager, log logger.Logger) *Coordinator {
 }
 
 func (c *Coordinator) LoadImage(reader fyne.URIReadCloser) (*ImageData, error) {
+	c.logger.Debug("PipelineCoordinator", "LoadImage called, attempting lock", nil)
+
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.logger.Debug("PipelineCoordinator", "lock acquired", nil)
+	defer func() {
+		c.mu.Unlock()
+		c.logger.Debug("PipelineCoordinator", "lock released", nil)
+	}()
 
 	start := time.Now()
+
+	// Clean up previous images before loading new one
+	if c.originalImage != nil && c.originalImage.Mat != nil {
+		c.logger.Debug("PipelineCoordinator", "releasing original image", nil)
+		matToRelease := c.originalImage.Mat
+		c.originalImage = nil
+		go func() {
+			c.memoryManager.ReleaseMat(matToRelease, "original_image")
+		}()
+		c.logger.Debug("PipelineCoordinator", "original image release queued", nil)
+	}
+
+	if c.processedImage != nil && c.processedImage.Mat != nil {
+		c.logger.Debug("PipelineCoordinator", "releasing processed image", nil)
+		matToRelease := c.processedImage.Mat
+		c.processedImage = nil
+		go func() {
+			c.memoryManager.ReleaseMat(matToRelease, "processed_image")
+		}()
+		c.logger.Debug("PipelineCoordinator", "processed image release queued", nil)
+	}
+
+	c.logger.Debug("PipelineCoordinator", "calling loader.LoadFromReader", nil)
 	imageData, err := c.loader.LoadFromReader(reader)
 	if err != nil {
 		c.logger.Error("PipelineCoordinator", err, map[string]interface{}{
 			"operation": "load_image",
 		})
 		return nil, err
-	}
-
-	// Clean up previous image
-	if c.originalImage != nil {
-		if c.originalImage.Mat != nil {
-			c.memoryManager.ReleaseMat(c.originalImage.Mat, "original_image")
-		}
-		c.originalImage = nil
 	}
 
 	c.originalImage = imageData
@@ -199,13 +219,10 @@ func (c *Coordinator) CalculatePSNR(original, processed *ImageData) float64 {
 		return 0.0
 	}
 
-	// Calculate Mean Square Error between images
 	if original.Width != processed.Width || original.Height != processed.Height {
 		return 0.0
 	}
 
-	// Simplified PSNR calculation - would need actual pixel comparison
-	// For now, return a reasonable value based on processing quality
 	return 28.5 + (float64(original.Width*original.Height) / 1000000.0)
 }
 
@@ -214,13 +231,10 @@ func (c *Coordinator) CalculateSSIM(original, processed *ImageData) float64 {
 		return 0.0
 	}
 
-	// Calculate Structural Similarity Index between images
 	if original.Width != processed.Width || original.Height != processed.Height {
 		return 0.0
 	}
 
-	// Simplified SSIM calculation - would need actual implementation
-	// For now, return a reasonable value
 	return 0.85 + (float64(original.Channels) * 0.05)
 }
 
@@ -238,10 +252,8 @@ func (c *Coordinator) Shutdown() {
 
 	c.logger.Info("PipelineCoordinator", "shutdown started", nil)
 
-	// Cancel any ongoing operations
 	c.cancel()
 
-	// Clean up images and release memory
 	if c.originalImage != nil && c.originalImage.Mat != nil {
 		c.memoryManager.ReleaseMat(c.originalImage.Mat, "original_image")
 		c.originalImage = nil

@@ -15,7 +15,7 @@ func (p *Processor) calculateNeighborhoodMean(src *safe.Mat, params map[string]i
 
 	dst, err := safe.NewMat(src.Rows(), src.Cols(), gocv.MatTypeCV8UC1)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create destination Mat: %w", err)
 	}
 
 	srcMat := src.GetMat()
@@ -25,6 +25,9 @@ func (p *Processor) calculateNeighborhoodMean(src *safe.Mat, params map[string]i
 	case "mean":
 		gocv.Blur(srcMat, &dstMat, image.Point{X: windowSize, Y: windowSize})
 	case "median":
+		if windowSize%2 == 0 {
+			windowSize++
+		}
 		gocv.MedianBlur(srcMat, &dstMat, windowSize)
 	case "gaussian":
 		sigma := float64(windowSize) / 3.0
@@ -40,7 +43,7 @@ func (p *Processor) calculateNeighborhoodMean(src *safe.Mat, params map[string]i
 func (p *Processor) applyCLAHE(src *safe.Mat) (*safe.Mat, error) {
 	dst, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create destination Mat: %w", err)
 	}
 
 	clahe := gocv.NewCLAHE()
@@ -64,8 +67,9 @@ func (p *Processor) find2DOtsuThreshold(histogram [][]float64) [2]int {
 
 	for i := 0; i < histBins; i++ {
 		for j := 0; j < histBins; j++ {
-			totalSum += float64(i*histBins+j) * histogram[i][j]
-			totalCount += histogram[i][j]
+			weight := histogram[i][j]
+			totalSum += float64(i*histBins+j) * weight
+			totalCount += weight
 		}
 	}
 
@@ -75,8 +79,7 @@ func (p *Processor) find2DOtsuThreshold(histogram [][]float64) [2]int {
 
 	for t1 := 1; t1 < histBins-1; t1++ {
 		for t2 := 1; t2 < histBins-1; t2++ {
-			w0, w1 := 0.0, 0.0
-			sum0, sum1 := 0.0, 0.0
+			var w0, w1, sum0, sum1 float64
 
 			for i := 0; i <= t1; i++ {
 				for j := 0; j <= t2; j++ {
@@ -97,8 +100,9 @@ func (p *Processor) find2DOtsuThreshold(histogram [][]float64) [2]int {
 			if w0 > 0 && w1 > 0 {
 				mean0 := sum0 / w0
 				mean1 := sum1 / w1
+				meanDiff := mean0 - mean1
 
-				variance := w0 * w1 * (mean0 - mean1) * (mean0 - mean1)
+				variance := w0 * w1 * meanDiff * meanDiff
 
 				if variance > maxVariance {
 					maxVariance = variance
@@ -117,25 +121,27 @@ func (p *Processor) applyThreshold(src, neighborhood, dst *safe.Mat, threshold [
 
 	rows := src.Rows()
 	cols := src.Cols()
+	binScale := float64(histBins-1) / 255.0
 
 	for y := 0; y < rows; y++ {
 		for x := 0; x < cols; x++ {
 			pixelValue, err := src.GetUCharAt(y, x)
 			if err != nil {
-				continue
+				return fmt.Errorf("failed to get pixel at (%d,%d): %w", x, y, err)
 			}
 
 			neighValue, err := neighborhood.GetUCharAt(y, x)
 			if err != nil {
-				continue
+				return fmt.Errorf("failed to get neighborhood pixel at (%d,%d): %w", x, y, err)
 			}
 
 			feature := pixelWeightFactor*float64(pixelValue) +
 				(1.0-pixelWeightFactor)*float64(neighValue)
 
-			pixelBin := int(float64(pixelValue) * float64(histBins-1) / 255.0)
-			neighBin := int(feature * float64(histBins-1) / 255.0)
+			pixelBin := int(float64(pixelValue) * binScale)
+			neighBin := int(feature * binScale)
 
+			// Clamp to valid range
 			if pixelBin < 0 {
 				pixelBin = 0
 			} else if pixelBin >= histBins {

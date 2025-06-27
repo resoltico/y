@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"image"
+	"log"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -29,13 +30,11 @@ func NewImageDisplay() *ImageDisplay {
 }
 
 func (id *ImageDisplay) createComponents() {
-	// Original image canvas
 	id.originalImage = canvas.NewImageFromImage(nil)
 	id.originalImage.FillMode = canvas.ImageFillContain
 	id.originalImage.ScaleMode = canvas.ImageScaleSmooth
 	id.originalImage.SetMinSize(fyne.NewSize(ImageAreaWidth, ImageAreaHeight))
 
-	// Preview image canvas
 	id.previewImage = canvas.NewImageFromImage(nil)
 	id.previewImage.FillMode = canvas.ImageFillContain
 	id.previewImage.ScaleMode = canvas.ImageScaleSmooth
@@ -43,23 +42,20 @@ func (id *ImageDisplay) createComponents() {
 }
 
 func (id *ImageDisplay) setupLayout() {
-	// Original image container with label
 	originalContainer := container.NewBorder(
 		widget.NewRichTextFromMarkdown("**Original**"),
 		nil, nil, nil,
 		id.originalImage,
 	)
 
-	// Preview image container with label
 	previewContainer := container.NewBorder(
 		widget.NewRichTextFromMarkdown("**Preview**"),
 		nil, nil, nil,
 		id.previewImage,
 	)
 
-	// Create split layout using standard HSplit
 	id.splitView = container.NewHSplit(originalContainer, previewContainer)
-	id.splitView.SetOffset(0.5) // Equal split
+	id.splitView.SetOffset(0.5)
 	id.container = id.splitView
 }
 
@@ -68,21 +64,34 @@ func (id *ImageDisplay) GetContainer() fyne.CanvasObject {
 }
 
 func (id *ImageDisplay) SetOriginalImage(img image.Image) {
+	log.Printf("DEBUG: ImageDisplay.SetOriginalImage called, img == nil: %v", img == nil)
+
 	if img == nil {
 		id.originalImage.Image = nil
+		log.Printf("DEBUG: Set originalImage.Image to nil")
 	} else {
 		id.originalImage.Image = img
+		log.Printf("DEBUG: Set originalImage.Image to %T, bounds: %v", img, img.Bounds())
 	}
+
 	id.originalImage.Refresh()
+	id.container.Refresh()
+	log.Printf("DEBUG: Called originalImage.Refresh() and container.Refresh()")
 }
 
 func (id *ImageDisplay) SetPreviewImage(img image.Image) {
+	log.Printf("DEBUG: ImageDisplay.SetPreviewImage called, img == nil: %v", img == nil)
+
 	if img == nil {
 		id.previewImage.Image = nil
+		log.Printf("DEBUG: Set previewImage.Image to nil")
 	} else {
 		id.previewImage.Image = img
+		log.Printf("DEBUG: Set previewImage.Image to %T, bounds: %v", img, img.Bounds())
 	}
+
 	id.previewImage.Refresh()
+	log.Printf("DEBUG: Called previewImage.Refresh()")
 }
 
 func (id *ImageDisplay) GetSplitView() *container.Split {

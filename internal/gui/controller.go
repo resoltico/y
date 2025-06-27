@@ -15,20 +15,17 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-// Controller coordinates between view components and processing pipeline
 type Controller struct {
 	view             *View
 	coordinator      pipeline.ProcessingCoordinator
 	algorithmManager *algorithms.Manager
 	logger           logger.Logger
 
-	// State management
+	mu                sync.RWMutex
 	currentAlgorithm  string
 	currentParameters map[string]interface{}
 	processingActive  bool
-	mu                sync.RWMutex
 
-	// Context for cancellation
 	processCtx    context.Context
 	processCancel context.CancelFunc
 }
@@ -54,40 +51,80 @@ func (c *Controller) initializeDefaultParameters() {
 	c.currentParameters = params
 	c.mu.Unlock()
 
-	// Thread-safe GUI updates
 	fyne.Do(func() {
 		c.view.UpdateParameterPanel(c.currentAlgorithm, params)
 	})
 }
 
-// Image operations
 func (c *Controller) LoadImage() {
+	c.logger.Debug("Controller", "LoadImage called", nil)
+
 	c.view.ShowFileDialog(func(reader fyne.URIReadCloser, err error) {
+		c.logger.Debug("Controller", "file dialog callback", map[string]interface{}{
+			"reader_nil": reader == nil,
+			"error":      err != nil,
+			"uri": func() string {
+				if reader != nil {
+					return reader.URI().String()
+				} else {
+					return "nil"
+				}
+			}(),
+		})
+
 		if err != nil {
 			c.handleError("File selection error", err)
 			return
 		}
 		if reader == nil {
+			c.logger.Debug("Controller", "file dialog cancelled", nil)
 			return
 		}
 
+		c.logger.Debug("Controller", "starting goroutine for image load", nil)
 		c.updateStatus("Loading image...")
 
 		go func() {
 			defer reader.Close()
 
+			c.logger.Debug("Controller", "inside load goroutine", nil)
+
 			start := time.Now()
 			imageData, loadErr := c.coordinator.LoadImage(reader)
 
+			c.logger.Debug("Controller", "coordinator.LoadImage returned", map[string]interface{}{
+				"error": loadErr != nil,
+			})
+
 			fyne.Do(func() {
+				c.logger.Debug("Controller", "inside fyne.Do", nil)
+
 				if loadErr != nil {
 					c.handleError("Image load error", loadErr)
 					c.updateStatus("Ready")
 					return
 				}
 
+				c.logger.Debug("Controller", "before setting original image", map[string]interface{}{
+					"width":  imageData.Width,
+					"height": imageData.Height,
+					"format": imageData.Format,
+				})
+
+				// Clear any existing processed image when loading new original
+				c.view.SetPreviewImage(nil)
+				c.logger.Debug("Controller", "cleared preview image", nil)
+
 				c.view.SetOriginalImage(imageData.Image)
-				c.updateStatus("Image loaded successfully")
+				c.logger.Debug("Controller", "set original image", map[string]interface{}{
+					"image_type": fmt.Sprintf("%T", imageData.Image),
+				})
+
+				c.updateStatus("Image loaded")
+
+				// Force UI refresh
+				c.view.GetMainContainer().Refresh()
+				c.logger.Debug("Controller", "refreshed main container", nil)
 
 				c.logger.Info("Controller", "image loaded", map[string]interface{}{
 					"width":     imageData.Width,
@@ -116,10 +153,8 @@ func (c *Controller) SaveImage() {
 			return
 		}
 
-		// Check if file has extension
 		ext := strings.ToLower(writer.URI().Extension())
 		if ext == "" {
-			// Show format selection dialog
 			c.showFormatSelectionDialog(writer, processedImg)
 			return
 		}
@@ -128,7 +163,6 @@ func (c *Controller) SaveImage() {
 	})
 }
 
-// Algorithm and parameter management
 func (c *Controller) ChangeAlgorithm(algorithm string) {
 	c.mu.Lock()
 	c.currentAlgorithm = algorithm
@@ -172,7 +206,6 @@ func (c *Controller) UpdateParameter(name string, value interface{}) {
 	})
 }
 
-// Image processing with context and cancellation
 func (c *Controller) ProcessImage() {
 	if c.isProcessing() {
 		c.logger.Debug("Controller", "processing already active", nil)
@@ -191,7 +224,6 @@ func (c *Controller) ProcessImage() {
 		c.view.SetProgress(0.1)
 	})
 
-	// Create cancellable context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	c.mu.Lock()
 	c.processCtx = ctx
@@ -204,7 +236,7 @@ func (c *Controller) ProcessImage() {
 			fyne.Do(func() {
 				c.view.SetProgress(0.0)
 			})
-			cancel() // Move cancel to end - after UI update
+			cancel()
 		}()
 
 		algorithm := c.getCurrentAlgorithm()
@@ -225,12 +257,11 @@ func (c *Controller) ProcessImage() {
 			"context_err": ctx.Err() != nil,
 		})
 
-		// Always execute UI update in fyne.Do
 		fyne.Do(func() {
 			if err != nil {
 				c.handleError("Processing error", err)
 				c.updateStatus("Processing failed")
-				c.logger.Debug("Controller", "processing failed with error", map[string]interface{}{
+				c.logger.Debug("Controller", "processing failed", map[string]interface{}{
 					"error": err.Error(),
 				})
 				return
@@ -272,7 +303,6 @@ func (c *Controller) CancelProcessing() {
 	c.mu.Unlock()
 }
 
-// Status and metrics updates
 func (c *Controller) updateStatus(status string) {
 	c.view.SetStatus(status)
 }
@@ -293,7 +323,6 @@ func (c *Controller) handleError(title string, err error) {
 	})
 }
 
-// Thread-safe getters
 func (c *Controller) isProcessing() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -323,42 +352,44 @@ func (c *Controller) getCurrentParameters() map[string]interface{} {
 	return result
 }
 
-// Cleanup
 func (c *Controller) Shutdown() {
 	c.CancelProcessing()
 	c.logger.Info("Controller", "shutdown completed", nil)
 }
 
-// Format selection dialog for saving images
 func (c *Controller) showFormatSelectionDialog(writer fyne.URIWriteCloser, processedImg *pipeline.ImageData) {
 	originalPath := writer.URI().Path()
+	writer.Close() // Close immediately to prevent empty file creation
+
+	// Remove the empty file created by the dialog
+	if err := os.Remove(originalPath); err != nil {
+		c.logger.Debug("Controller", "failed to remove empty file", map[string]interface{}{
+			"path":  originalPath,
+			"error": err.Error(),
+		})
+	}
 
 	c.view.ShowFormatSelectionDialog(func(format string, confirmed bool) {
-		// Remove the empty file created by the dialog
-		os.Remove(originalPath)
-		writer.Close()
-
 		if !confirmed {
 			return
 		}
 
-		// Save with selected format
 		c.saveImageWithFormat(originalPath, processedImg, format)
 	})
 }
 
-func (c *Controller) saveImageWithFormat(filepath string, processedImg *pipeline.ImageData, format string) {
+func (c *Controller) saveImageWithFormat(imagePath string, processedImg *pipeline.ImageData, format string) {
 	c.updateStatus("Saving image...")
 
 	go func() {
-		// Create new file with extension
 		ext := ".png"
 		if format == "JPEG" {
 			ext = ".jpg"
 		}
 
-		finalPath := filepath + ext
+		finalPath := imagePath + ext
 
+		// Use standard file creation instead of Fyne storage
 		file, err := os.Create(finalPath)
 		if err != nil {
 			fyne.Do(func() {
@@ -368,14 +399,13 @@ func (c *Controller) saveImageWithFormat(filepath string, processedImg *pipeline
 		}
 		defer file.Close()
 
-		// Save using pipeline's save functionality
 		saveErr := c.coordinator.SaveImageToWriter(file, processedImg, format)
 
 		fyne.Do(func() {
 			if saveErr != nil {
 				c.handleError("Image save error", saveErr)
 			} else {
-				c.updateStatus("Image saved successfully")
+				c.updateStatus("Image saved")
 				c.logger.Info("Controller", "image saved with format", map[string]interface{}{
 					"path":   finalPath,
 					"format": format,
@@ -398,7 +428,7 @@ func (c *Controller) saveImageWithWriter(writer fyne.URIWriteCloser, processedIm
 			if saveErr != nil {
 				c.handleError("Image save error", saveErr)
 			} else {
-				c.updateStatus("Image saved successfully")
+				c.updateStatus("Image saved")
 				c.logger.Info("Controller", "image saved", map[string]interface{}{
 					"path":      writer.URI().Path(),
 					"save_time": time.Since(start),

@@ -17,7 +17,6 @@ type imageProcessor struct {
 	algorithmManager *algorithms.Manager
 }
 
-// ContextualAlgorithm defines algorithms that support context cancellation
 type ContextualAlgorithm interface {
 	ProcessWithContext(ctx context.Context, input *safe.Mat, params map[string]interface{}) (*safe.Mat, error)
 }
@@ -37,19 +36,18 @@ func (p *imageProcessor) ProcessImageWithContext(ctx context.Context, inputData 
 		return nil, fmt.Errorf("input validation failed: %w", err)
 	}
 
-	// Check for cancellation before processing
-	if ctx.Err() != nil {
+	select {
+	case <-ctx.Done():
 		return nil, ctx.Err()
+	default:
 	}
 
 	var resultMat *safe.Mat
 	var err error
 
-	// Use context-aware processing if algorithm supports it
 	if contextualAlg, ok := algorithm.(ContextualAlgorithm); ok {
 		resultMat, err = contextualAlg.ProcessWithContext(ctx, inputData.Mat, params)
 	} else {
-		// Fallback to regular processing for algorithms that don't support context
 		resultMat, err = algorithm.Process(inputData.Mat, params)
 	}
 
@@ -61,7 +59,6 @@ func (p *imageProcessor) ProcessImageWithContext(ctx context.Context, inputData 
 		return nil, fmt.Errorf("algorithm returned nil result")
 	}
 
-	// Log result Mat properties for debugging
 	p.logger.Debug("ImageProcessor", "result Mat created", map[string]interface{}{
 		"rows":     resultMat.Rows(),
 		"cols":     resultMat.Cols(),
@@ -70,10 +67,11 @@ func (p *imageProcessor) ProcessImageWithContext(ctx context.Context, inputData 
 		"valid":    resultMat.IsValid(),
 	})
 
-	// Check for cancellation after processing
-	if ctx.Err() != nil {
+	select {
+	case <-ctx.Done():
 		p.memoryManager.ReleaseMat(resultMat, "processing_result")
 		return nil, ctx.Err()
+	default:
 	}
 
 	resultImage, err := bridge.MatToImage(resultMat)

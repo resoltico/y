@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"strconv"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -9,8 +10,8 @@ import (
 )
 
 type ParameterPanel struct {
-	container             *fyne.Container
-	parametersContent     *fyne.Container
+	container              *fyne.Container
+	parametersContent      *fyne.Container
 	parameterChangeHandler func(string, interface{})
 }
 
@@ -50,37 +51,54 @@ func (pp *ParameterPanel) UpdateParameters(algorithm string, params map[string]i
 }
 
 func (pp *ParameterPanel) buildOtsu2DParameters(params map[string]interface{}) {
-	// Window Size parameter
+	var builder strings.Builder
+
 	windowSize := pp.getIntParam(params, "window_size", 7)
 	windowSizeSlider := widget.NewSlider(3, 21)
 	windowSizeSlider.Step = 2
 	windowSizeSlider.SetValue(float64(windowSize))
-	windowSizeLabel := widget.NewLabel("Window Size: " + strconv.Itoa(windowSize))
+
+	builder.Reset()
+	builder.WriteString("Window Size: ")
+	builder.WriteString(strconv.Itoa(windowSize))
+	windowSizeLabel := widget.NewLabel(builder.String())
+
 	windowSizeSlider.OnChanged = func(value float64) {
 		intValue := int(value)
 		if intValue%2 == 0 {
 			intValue++
 		}
-		windowSizeLabel.SetText("Window Size: " + strconv.Itoa(intValue))
+		builder.Reset()
+		builder.WriteString("Window Size: ")
+		builder.WriteString(strconv.Itoa(intValue))
+		windowSizeLabel.SetText(builder.String())
+
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("window_size", intValue)
 		}
 	}
 
-	// Histogram Bins parameter
 	histBins := pp.getIntParam(params, "histogram_bins", 64)
 	histBinsSlider := widget.NewSlider(16, 256)
 	histBinsSlider.SetValue(float64(histBins))
-	histBinsLabel := widget.NewLabel("Histogram Bins: " + strconv.Itoa(histBins))
+
+	builder.Reset()
+	builder.WriteString("Histogram Bins: ")
+	builder.WriteString(strconv.Itoa(histBins))
+	histBinsLabel := widget.NewLabel(builder.String())
+
 	histBinsSlider.OnChanged = func(value float64) {
 		intValue := int(value)
-		histBinsLabel.SetText("Histogram Bins: " + strconv.Itoa(intValue))
+		builder.Reset()
+		builder.WriteString("Histogram Bins: ")
+		builder.WriteString(strconv.Itoa(intValue))
+		histBinsLabel.SetText(builder.String())
+
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("histogram_bins", intValue)
 		}
 	}
 
-	// Neighbourhood Metric parameter
 	neighMetric := widget.NewSelect([]string{"mean", "median", "gaussian"}, func(value string) {
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("neighbourhood_metric", value)
@@ -88,31 +106,46 @@ func (pp *ParameterPanel) buildOtsu2DParameters(params map[string]interface{}) {
 	})
 	neighMetric.SetSelected(pp.getStringParam(params, "neighbourhood_metric", "mean"))
 
-	// Pixel Weight parameter
 	pixelWeight := pp.getFloatParam(params, "pixel_weight_factor", 0.5)
 	pixelWeightSlider := widget.NewSlider(0.0, 1.0)
 	pixelWeightSlider.SetValue(pixelWeight)
-	pixelWeightLabel := widget.NewLabel("Pixel Weight: " + strconv.FormatFloat(pixelWeight, 'f', 2, 64))
+
+	builder.Reset()
+	builder.WriteString("Pixel Weight: ")
+	builder.WriteString(strconv.FormatFloat(pixelWeight, 'f', 2, 64))
+	pixelWeightLabel := widget.NewLabel(builder.String())
+
 	pixelWeightSlider.OnChanged = func(value float64) {
-		pixelWeightLabel.SetText("Pixel Weight: " + strconv.FormatFloat(value, 'f', 2, 64))
+		builder.Reset()
+		builder.WriteString("Pixel Weight: ")
+		builder.WriteString(strconv.FormatFloat(value, 'f', 2, 64))
+		pixelWeightLabel.SetText(builder.String())
+
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("pixel_weight_factor", value)
 		}
 	}
 
-	// Smoothing Sigma parameter
 	smoothingSigma := pp.getFloatParam(params, "smoothing_sigma", 1.0)
 	smoothingSigmaSlider := widget.NewSlider(0.0, 5.0)
 	smoothingSigmaSlider.SetValue(smoothingSigma)
-	smoothingSigmaLabel := widget.NewLabel("Smoothing Sigma: " + strconv.FormatFloat(smoothingSigma, 'f', 1, 64))
+
+	builder.Reset()
+	builder.WriteString("Smoothing Sigma: ")
+	builder.WriteString(strconv.FormatFloat(smoothingSigma, 'f', 1, 64))
+	smoothingSigmaLabel := widget.NewLabel(builder.String())
+
 	smoothingSigmaSlider.OnChanged = func(value float64) {
-		smoothingSigmaLabel.SetText("Smoothing Sigma: " + strconv.FormatFloat(value, 'f', 1, 64))
+		builder.Reset()
+		builder.WriteString("Smoothing Sigma: ")
+		builder.WriteString(strconv.FormatFloat(value, 'f', 1, 64))
+		smoothingSigmaLabel.SetText(builder.String())
+
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("smoothing_sigma", value)
 		}
 	}
 
-	// Boolean parameters
 	useLogCheck := widget.NewCheck("Use Log Histogram", func(checked bool) {
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("use_log_histogram", checked)
@@ -134,7 +167,6 @@ func (pp *ParameterPanel) buildOtsu2DParameters(params map[string]interface{}) {
 	})
 	contrastCheck.SetChecked(pp.getBoolParam(params, "apply_contrast_enhancement", false))
 
-	// Layout components
 	pp.parametersContent.Add(container.NewVBox(
 		container.NewHBox(
 			container.NewVBox(windowSizeLabel, windowSizeSlider),
@@ -150,7 +182,8 @@ func (pp *ParameterPanel) buildOtsu2DParameters(params map[string]interface{}) {
 }
 
 func (pp *ParameterPanel) buildTriclassParameters(params map[string]interface{}) {
-	// Initial Method parameter
+	var builder strings.Builder
+
 	initialMethod := widget.NewSelect([]string{"otsu", "mean", "median"}, func(value string) {
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("initial_threshold_method", value)
@@ -158,56 +191,87 @@ func (pp *ParameterPanel) buildTriclassParameters(params map[string]interface{})
 	})
 	initialMethod.SetSelected(pp.getStringParam(params, "initial_threshold_method", "otsu"))
 
-	// Max Iterations parameter
 	maxIter := pp.getIntParam(params, "max_iterations", 10)
 	maxIterSlider := widget.NewSlider(1, 20)
 	maxIterSlider.SetValue(float64(maxIter))
-	maxIterLabel := widget.NewLabel("Max Iterations: " + strconv.Itoa(maxIter))
+
+	builder.Reset()
+	builder.WriteString("Max Iterations: ")
+	builder.WriteString(strconv.Itoa(maxIter))
+	maxIterLabel := widget.NewLabel(builder.String())
+
 	maxIterSlider.OnChanged = func(value float64) {
 		intValue := int(value)
-		maxIterLabel.SetText("Max Iterations: " + strconv.Itoa(intValue))
+		builder.Reset()
+		builder.WriteString("Max Iterations: ")
+		builder.WriteString(strconv.Itoa(intValue))
+		maxIterLabel.SetText(builder.String())
+
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("max_iterations", intValue)
 		}
 	}
 
-	// Convergence Epsilon parameter
 	convEpsilon := pp.getFloatParam(params, "convergence_epsilon", 1.0)
 	convEpsilonSlider := widget.NewSlider(0.1, 10.0)
 	convEpsilonSlider.SetValue(convEpsilon)
-	convEpsilonLabel := widget.NewLabel("Convergence Epsilon: " + strconv.FormatFloat(convEpsilon, 'f', 1, 64))
+
+	builder.Reset()
+	builder.WriteString("Convergence Epsilon: ")
+	builder.WriteString(strconv.FormatFloat(convEpsilon, 'f', 1, 64))
+	convEpsilonLabel := widget.NewLabel(builder.String())
+
 	convEpsilonSlider.OnChanged = func(value float64) {
-		convEpsilonLabel.SetText("Convergence Epsilon: " + strconv.FormatFloat(value, 'f', 1, 64))
+		builder.Reset()
+		builder.WriteString("Convergence Epsilon: ")
+		builder.WriteString(strconv.FormatFloat(value, 'f', 1, 64))
+		convEpsilonLabel.SetText(builder.String())
+
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("convergence_epsilon", value)
 		}
 	}
 
-	// Min TBD Fraction parameter
 	minTBD := pp.getFloatParam(params, "minimum_tbd_fraction", 0.01)
 	minTBDSlider := widget.NewSlider(0.001, 0.2)
 	minTBDSlider.SetValue(minTBD)
-	minTBDLabel := widget.NewLabel("Min TBD Fraction: " + strconv.FormatFloat(minTBD, 'f', 3, 64))
+
+	builder.Reset()
+	builder.WriteString("Min TBD Fraction: ")
+	builder.WriteString(strconv.FormatFloat(minTBD, 'f', 3, 64))
+	minTBDLabel := widget.NewLabel(builder.String())
+
 	minTBDSlider.OnChanged = func(value float64) {
-		minTBDLabel.SetText("Min TBD Fraction: " + strconv.FormatFloat(value, 'f', 3, 64))
+		builder.Reset()
+		builder.WriteString("Min TBD Fraction: ")
+		builder.WriteString(strconv.FormatFloat(value, 'f', 3, 64))
+		minTBDLabel.SetText(builder.String())
+
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("minimum_tbd_fraction", value)
 		}
 	}
 
-	// Gap Factor parameter
 	gapFactor := pp.getFloatParam(params, "lower_upper_gap_factor", 0.5)
 	gapFactorSlider := widget.NewSlider(0.0, 1.0)
 	gapFactorSlider.SetValue(gapFactor)
-	gapFactorLabel := widget.NewLabel("Gap Factor: " + strconv.FormatFloat(gapFactor, 'f', 2, 64))
+
+	builder.Reset()
+	builder.WriteString("Gap Factor: ")
+	builder.WriteString(strconv.FormatFloat(gapFactor, 'f', 2, 64))
+	gapFactorLabel := widget.NewLabel(builder.String())
+
 	gapFactorSlider.OnChanged = func(value float64) {
-		gapFactorLabel.SetText("Gap Factor: " + strconv.FormatFloat(value, 'f', 2, 64))
+		builder.Reset()
+		builder.WriteString("Gap Factor: ")
+		builder.WriteString(strconv.FormatFloat(value, 'f', 2, 64))
+		gapFactorLabel.SetText(builder.String())
+
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("lower_upper_gap_factor", value)
 		}
 	}
 
-	// Boolean parameters
 	preprocessCheck := widget.NewCheck("Apply Preprocessing", func(checked bool) {
 		if pp.parameterChangeHandler != nil {
 			pp.parameterChangeHandler("apply_preprocessing", checked)
@@ -229,7 +293,6 @@ func (pp *ParameterPanel) buildTriclassParameters(params map[string]interface{})
 	})
 	bordersCheck.SetChecked(pp.getBoolParam(params, "preserve_borders", false))
 
-	// Layout components
 	pp.parametersContent.Add(container.NewVBox(
 		container.NewHBox(
 			container.NewVBox(widget.NewLabel("Initial Method"), initialMethod),
@@ -244,7 +307,6 @@ func (pp *ParameterPanel) buildTriclassParameters(params map[string]interface{})
 	))
 }
 
-// Parameter extraction helpers
 func (pp *ParameterPanel) getIntParam(params map[string]interface{}, key string, defaultValue int) int {
 	if value, ok := params[key].(int); ok {
 		return value

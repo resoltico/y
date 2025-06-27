@@ -10,7 +10,6 @@ import (
 	"gocv.io/x/gocv"
 )
 
-// MemoryTracker interface to avoid import cycles
 type MemoryTracker interface {
 	TrackAllocation(ptr uintptr, size int64, tag string)
 	TrackDeallocation(ptr uintptr, tag string)
@@ -26,7 +25,14 @@ type Mat struct {
 	tag        string
 }
 
-var nextMatID uint64
+var (
+	nextMatID uint64
+	matPool   = sync.Pool{
+		New: func() interface{} {
+			return &Mat{}
+		},
+	}
+)
 
 func NewMat(rows, cols int, matType gocv.MatType) (*Mat, error) {
 	return NewMatWithTracker(rows, cols, matType, nil, "")
@@ -43,7 +49,8 @@ func NewMatWithTracker(rows, cols int, matType gocv.MatType, memTracker MemoryTr
 		return nil, fmt.Errorf("failed to create Mat with size %dx%d", cols, rows)
 	}
 
-	safeMat := &Mat{
+	safeMat := matPool.Get().(*Mat)
+	*safeMat = Mat{
 		mat:        mat,
 		isValid:    1,
 		refCount:   1,
@@ -58,9 +65,7 @@ func NewMatWithTracker(rows, cols int, matType gocv.MatType, memTracker MemoryTr
 		memTracker.TrackAllocation(ptr, size, tag)
 	}
 
-	// Set finalizer for cleanup if Close() is not called
 	runtime.SetFinalizer(safeMat, (*Mat).finalize)
-
 	return safeMat, nil
 }
 
@@ -83,7 +88,8 @@ func NewMatFromMatWithTracker(srcMat gocv.Mat, memTracker MemoryTracker, tag str
 		return nil, fmt.Errorf("failed to clone Mat")
 	}
 
-	safeMat := &Mat{
+	safeMat := matPool.Get().(*Mat)
+	*safeMat = Mat{
 		mat:        clonedMat,
 		isValid:    1,
 		refCount:   1,
@@ -99,7 +105,6 @@ func NewMatFromMatWithTracker(srcMat gocv.Mat, memTracker MemoryTracker, tag str
 	}
 
 	runtime.SetFinalizer(safeMat, (*Mat).finalize)
-
 	return safeMat, nil
 }
 
@@ -114,7 +119,6 @@ func (sm *Mat) Empty() bool {
 	if !sm.IsValid() {
 		return true
 	}
-
 	return sm.mat.Empty()
 }
 
@@ -125,7 +129,6 @@ func (sm *Mat) Rows() int {
 	if !sm.IsValid() {
 		return 0
 	}
-
 	return sm.mat.Rows()
 }
 
@@ -136,7 +139,6 @@ func (sm *Mat) Cols() int {
 	if !sm.IsValid() {
 		return 0
 	}
-
 	return sm.mat.Cols()
 }
 
@@ -147,7 +149,6 @@ func (sm *Mat) Channels() int {
 	if !sm.IsValid() {
 		return 0
 	}
-
 	return sm.mat.Channels()
 }
 
@@ -158,7 +159,6 @@ func (sm *Mat) Type() gocv.MatType {
 	if !sm.IsValid() {
 		return gocv.MatTypeCV8UC1
 	}
-
 	return sm.mat.Type()
 }
 
@@ -277,7 +277,6 @@ func (sm *Mat) SetUCharAt3(row, col, channel int, value uint8) error {
 func (sm *Mat) GetMat() gocv.Mat {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-
 	return sm.mat
 }
 
@@ -296,28 +295,34 @@ func (sm *Mat) Release() {
 }
 
 func (sm *Mat) Close() {
+	if !atomic.CompareAndSwapInt32(&sm.isValid, 1, 0) {
+		return // Already closed
+	}
+
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if atomic.CompareAndSwapInt32(&sm.isValid, 1, 0) {
-		if sm.memTracker != nil {
-			ptr := uintptr(unsafe.Pointer(&sm.mat))
-			sm.memTracker.TrackDeallocation(ptr, sm.tag)
-		}
-
-		if !sm.mat.Empty() {
-			sm.mat.Close()
-		}
-
-		// Clear finalizer since we're cleaning up manually
-		runtime.SetFinalizer(sm, nil)
+	if sm.memTracker != nil {
+		ptr := uintptr(unsafe.Pointer(&sm.mat))
+		sm.memTracker.TrackDeallocation(ptr, sm.tag)
 	}
+
+	if !sm.mat.Empty() {
+		sm.mat.Close()
+	}
+
+	runtime.SetFinalizer(sm, nil)
+
+	// Reset only the mat and tracking fields, keep mutex intact
+	sm.mat = gocv.Mat{}
+	sm.memTracker = nil
+	sm.tag = ""
+	sm.refCount = 0
+	sm.id = 0
 }
 
-// finalize is called by Go's garbage collector as last resort cleanup
 func (sm *Mat) finalize() {
 	if atomic.LoadInt32(&sm.isValid) == 1 {
-		// Force cleanup if Close() was never called
 		sm.Close()
 	}
 }

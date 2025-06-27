@@ -12,12 +12,10 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// View handles all UI components and their layout
 type View struct {
 	window     fyne.Window
 	controller *Controller
 
-	// UI components
 	toolbar        *widgets.Toolbar
 	imageDisplay   *widgets.ImageDisplay
 	parameterPanel *widgets.ParameterPanel
@@ -59,27 +57,46 @@ func (v *View) setupEventHandlers() {
 		return
 	}
 
-	// Toolbar event handlers
 	v.toolbar.SetLoadHandler(v.controller.LoadImage)
 	v.toolbar.SetSaveHandler(v.controller.SaveImage)
 	v.toolbar.SetProcessHandler(v.controller.ProcessImage)
 	v.toolbar.SetAlgorithmChangeHandler(v.controller.ChangeAlgorithm)
 
-	// Parameter panel event handlers
 	v.parameterPanel.SetParameterChangeHandler(v.controller.UpdateParameter)
 }
 
-// Public interface for controller
 func (v *View) GetMainContainer() *fyne.Container {
 	return v.mainContainer
 }
 
 func (v *View) SetOriginalImage(img image.Image) {
+	if v.controller != nil {
+		v.controller.logger.Debug("View", "SetOriginalImage called", map[string]interface{}{
+			"image_nil":  img == nil,
+			"image_type": fmt.Sprintf("%T", img),
+		})
+	}
+
 	v.imageDisplay.SetOriginalImage(img)
+
+	if v.controller != nil {
+		v.controller.logger.Debug("View", "SetOriginalImage completed", nil)
+	}
 }
 
 func (v *View) SetPreviewImage(img image.Image) {
+	if v.controller != nil {
+		v.controller.logger.Debug("View", "SetPreviewImage called", map[string]interface{}{
+			"image_nil":  img == nil,
+			"image_type": fmt.Sprintf("%T", img),
+		})
+	}
+
 	v.imageDisplay.SetPreviewImage(img)
+
+	if v.controller != nil {
+		v.controller.logger.Debug("View", "SetPreviewImage completed", nil)
+	}
 }
 
 func (v *View) UpdateParameterPanel(algorithm string, params map[string]interface{}) {
@@ -135,7 +152,6 @@ func (v *View) ShowFormatSelectionDialog(callback func(string, bool)) {
 		}, v.window)
 }
 
-// Window management
 func (v *View) GetWindow() fyne.Window {
 	return v.window
 }

@@ -3,6 +3,7 @@ package widgets
 import (
 	"fmt"
 	"image/color"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -11,22 +12,23 @@ import (
 )
 
 type Toolbar struct {
-	container          *fyne.Container
-	loadButton         *widget.Button
-	saveButton         *widget.Button
-	algorithmSelect    *widget.Select
-	qualitySelect      *widget.Select
-	processButton      *widget.Button
-	statusLabel        *widget.Label
-	progressLabel      *widget.Label
-	metricsLabel       *widget.Label
+	container       *fyne.Container
+	loadButton      *widget.Button
+	saveButton      *widget.Button
+	algorithmSelect *widget.Select
+	qualitySelect   *widget.Select
+	processButton   *widget.Button
+	statusLabel     *widget.Label
+	progressLabel   *widget.Label
+	metricsLabel    *widget.Label
 
-	// Event handlers
 	loadHandler            func()
 	saveHandler            func()
 	processHandler         func()
 	algorithmChangeHandler func(string)
 	qualityChangeHandler   func(string)
+
+	builder strings.Builder
 }
 
 func NewToolbar() *Toolbar {
@@ -37,57 +39,50 @@ func NewToolbar() *Toolbar {
 }
 
 func (t *Toolbar) createComponents() {
-	// Action buttons
 	t.loadButton = widget.NewButton("Load", t.onLoadClicked)
 	t.loadButton.Importance = widget.HighImportance
-	
+
 	t.saveButton = widget.NewButton("Save", t.onSaveClicked)
 	t.saveButton.Importance = widget.HighImportance
-	
+
 	t.processButton = widget.NewButton("Process", t.onProcessClicked)
 	t.processButton.Importance = widget.HighImportance
 
-	// Algorithm selection
 	t.algorithmSelect = widget.NewSelect(
 		[]string{"2D Otsu", "Iterative Triclass"},
 		t.onAlgorithmChanged,
 	)
 	t.algorithmSelect.SetSelected("2D Otsu")
 
-	// Quality selection
 	t.qualitySelect = widget.NewSelect(
 		[]string{"Fast", "Best"},
 		t.onQualityChanged,
 	)
 	t.qualitySelect.SetSelected("Fast")
 
-	// Status and metrics
 	t.statusLabel = widget.NewLabel("Ready")
 	t.progressLabel = widget.NewLabel("")
 	t.metricsLabel = widget.NewLabel("PSNR: -- | SSIM: --")
 }
 
 func (t *Toolbar) buildLayout() {
-	// Create background
 	background := canvas.NewRectangle(color.RGBA{R: 250, G: 249, B: 245, A: 255})
 	border := canvas.NewRectangle(color.Transparent)
 	border.StrokeWidth = 1.0
 	border.StrokeColor = color.RGBA{R: 231, G: 231, B: 231, A: 255}
 
-	// Left section: Load/Save
 	leftSection := container.NewHBox(t.loadButton, t.saveButton)
 
-	// Center section: Algorithm controls
 	algorithmGroup := container.NewVBox(
 		widget.NewLabel("Algorithm"),
 		t.algorithmSelect,
 	)
-	
+
 	qualityGroup := container.NewVBox(
 		widget.NewLabel("Quality"),
 		t.qualitySelect,
 	)
-	
+
 	processGroup := container.NewVBox(
 		widget.NewLabel("Action"),
 		t.processButton,
@@ -101,13 +96,9 @@ func (t *Toolbar) buildLayout() {
 		processGroup,
 	)
 
-	// Status section
 	statusSection := container.NewHBox(t.statusLabel, t.progressLabel)
-
-	// Right section: Metrics
 	rightSection := container.NewHBox(t.metricsLabel)
 
-	// Main layout
 	content := container.NewBorder(
 		nil, nil,
 		leftSection,
@@ -115,7 +106,6 @@ func (t *Toolbar) buildLayout() {
 		container.NewHBox(centerSection, widget.NewSeparator(), statusSection),
 	)
 
-	// Layer with background
 	t.container = container.NewStack(
 		border,
 		container.NewPadded(
@@ -124,10 +114,13 @@ func (t *Toolbar) buildLayout() {
 	)
 }
 
-// Event handlers
 func (t *Toolbar) onLoadClicked() {
+	fmt.Printf("DEBUG: Load button clicked\n")
 	if t.loadHandler != nil {
+		fmt.Printf("DEBUG: Calling load handler\n")
 		t.loadHandler()
+	} else {
+		fmt.Printf("DEBUG: No load handler set\n")
 	}
 }
 
@@ -155,7 +148,6 @@ func (t *Toolbar) onQualityChanged(quality string) {
 	}
 }
 
-// Public interface
 func (t *Toolbar) GetContainer() *fyne.Container {
 	return t.container
 }
@@ -190,7 +182,12 @@ func (t *Toolbar) SetProgress(progress string) {
 
 func (t *Toolbar) SetMetrics(psnr, ssim float64) {
 	if psnr > 0 && ssim > 0 {
-		t.metricsLabel.SetText(fmt.Sprintf("PSNR: %.2f dB | SSIM: %.4f", psnr, ssim))
+		t.builder.Reset()
+		t.builder.WriteString("PSNR: ")
+		t.builder.WriteString(fmt.Sprintf("%.2f", psnr))
+		t.builder.WriteString(" dB | SSIM: ")
+		t.builder.WriteString(fmt.Sprintf("%.4f", ssim))
+		t.metricsLabel.SetText(t.builder.String())
 	} else {
 		t.metricsLabel.SetText("PSNR: -- | SSIM: --")
 	}

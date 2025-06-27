@@ -2,6 +2,8 @@ package memory
 
 import (
 	"fmt"
+	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -42,6 +44,7 @@ func (m *Manager) GetMat(rows, cols int, matType gocv.MatType, tag string) (*saf
 	m.mu.Lock()
 	if m.usedMemory+size > m.maxMemory {
 		m.mu.Unlock()
+		runtime.GC()
 		return nil, fmt.Errorf("memory limit exceeded: would use %d bytes, limit is %d",
 			m.usedMemory+size, m.maxMemory)
 	}
@@ -74,7 +77,7 @@ func (m *Manager) GetMat(rows, cols int, matType gocv.MatType, tag string) (*saf
 }
 
 func (m *Manager) TrackAllocation(ptr uintptr, size int64, tag string) {
-	// Tracking is handled in GetMat
+	// Tracking is handled in GetMat for better control
 }
 
 func (m *Manager) TrackDeallocation(ptr uintptr, tag string) {
@@ -139,7 +142,6 @@ func (m *Manager) MonitorMemory() {
 				"gocv_mat_count": gocv.MatProfile.Count(),
 			})
 
-			// Warn if potential leak detected
 			if gocv.MatProfile.Count() > 100 {
 				m.logger.Warning("MemoryManager", "potential memory leak detected", map[string]interface{}{
 					"gocv_mat_count": gocv.MatProfile.Count(),
@@ -147,9 +149,12 @@ func (m *Manager) MonitorMemory() {
 				})
 			}
 
-			// Log oldest active Mats if too many
 			if activeCount > 50 {
 				m.logOldestMats(5)
+			}
+
+			if used > m.maxMemory*8/10 { // 80% threshold
+				runtime.GC()
 			}
 		}
 	}()
@@ -159,35 +164,36 @@ func (m *Manager) logOldestMats(count int) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if len(m.activeMats) == 0 {
+		return
+	}
+
 	type matAge struct {
 		info *MatInfo
 		age  time.Duration
 	}
 
-	var oldest []matAge
+	ages := make([]matAge, 0, len(m.activeMats))
 	now := time.Now()
 
 	for _, info := range m.activeMats {
-		age := now.Sub(info.Timestamp)
-		if len(oldest) < count {
-			oldest = append(oldest, matAge{info, age})
-		} else {
-			// Find if this is older than the youngest in our list
-			minIdx := 0
-			minAge := oldest[0].age
-			for i := 1; i < len(oldest); i++ {
-				if oldest[i].age < minAge {
-					minAge = oldest[i].age
-					minIdx = i
-				}
-			}
-			if age > minAge {
-				oldest[minIdx] = matAge{info, age}
-			}
-		}
+		ages = append(ages, matAge{
+			info: info,
+			age:  now.Sub(info.Timestamp),
+		})
 	}
 
-	for _, mat := range oldest {
+	sort.Slice(ages, func(i, j int) bool {
+		return ages[i].age > ages[j].age
+	})
+
+	limit := count
+	if len(ages) < limit {
+		limit = len(ages)
+	}
+
+	for i := 0; i < limit; i++ {
+		mat := ages[i]
 		m.logger.Warning("MemoryManager", "long-lived Mat detected", map[string]interface{}{
 			"tag":  mat.info.Tag,
 			"size": mat.info.Size,
@@ -220,6 +226,7 @@ func (m *Manager) Cleanup() {
 	})
 
 	m.usedMemory = 0
+	runtime.GC()
 }
 
 func (m *Manager) getMatTypeSize(matType gocv.MatType) int {

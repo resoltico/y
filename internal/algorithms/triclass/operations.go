@@ -27,12 +27,14 @@ func (p *Processor) performIterativeTriclass(ctx context.Context, working *safe.
 	}
 	defer currentRegion.Close()
 
-	var previousThreshold float64 = -1
+	previousThreshold := -1.0
+	totalPixels := float64(currentRegion.Rows() * currentRegion.Cols())
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
-		// Check for cancellation at each iteration
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			return nil, ctx.Err()
+		default:
 		}
 
 		nonZeroPixels := p.countNonZeroPixels(currentRegion)
@@ -54,8 +56,7 @@ func (p *Processor) performIterativeTriclass(ctx context.Context, working *safe.
 		}
 
 		tbdCount := p.countNonZeroPixels(tbdMask)
-		totalPixels := currentRegion.Rows() * currentRegion.Cols()
-		tbdFraction := float64(tbdCount) / float64(totalPixels)
+		tbdFraction := float64(tbdCount) / totalPixels
 
 		p.updateResult(result, foregroundMask)
 
@@ -107,7 +108,7 @@ func (p *Processor) calculateThresholdForRegion(region *safe.Mat, params map[str
 		return p.calculateMeanThreshold(histogram, histBins)
 	case "median":
 		return p.calculateMedianThreshold(histogram, histBins)
-	default: // "otsu"
+	default:
 		return p.calculateOtsuThreshold(histogram, histBins)
 	}
 }
@@ -116,11 +117,12 @@ func (p *Processor) calculateHistogram(src *safe.Mat, histBins int) []int {
 	histogram := make([]int, histBins)
 	rows := src.Rows()
 	cols := src.Cols()
+	binScale := float64(histBins-1) / 255.0
 
 	for y := 0; y < rows; y++ {
 		for x := 0; x < cols; x++ {
 			if pixelValue, err := src.GetUCharAt(y, x); err == nil && pixelValue > 0 {
-				bin := int(float64(pixelValue) * float64(histBins-1) / 255.0)
+				bin := int(float64(pixelValue) * binScale)
 				if bin < 0 {
 					bin = 0
 				} else if bin >= histBins {
@@ -153,6 +155,8 @@ func (p *Processor) calculateOtsuThreshold(histogram []int, histBins int) float6
 	wB := 0
 	maxVariance := 0.0
 	bestThreshold := 127.5
+	invTotal := 1.0 / float64(total)
+	binToValue := 255.0 / float64(histBins-1)
 
 	for t := 0; t < histBins; t++ {
 		wB += histogram[t]
@@ -169,12 +173,13 @@ func (p *Processor) calculateOtsuThreshold(histogram []int, histBins int) float6
 
 		mB := sumB / float64(wB)
 		mF := (sum - sumB) / float64(wF)
+		meanDiff := mB - mF
 
-		varBetween := float64(wB) * float64(wF) * (mB - mF) * (mB - mF)
+		varBetween := float64(wB) * float64(wF) * invTotal * meanDiff * meanDiff
 
 		if varBetween > maxVariance {
 			maxVariance = varBetween
-			bestThreshold = float64(t) * 255.0 / float64(histBins-1)
+			bestThreshold = float64(t) * binToValue
 		}
 	}
 
@@ -227,20 +232,20 @@ func (p *Processor) segmentRegion(region *safe.Mat, threshold float64, params ma
 
 	foreground, err := safe.NewMat(rows, cols, gocv.MatTypeCV8UC1)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("failed to create foreground Mat: %w", err)
 	}
 
 	background, err := safe.NewMat(rows, cols, gocv.MatTypeCV8UC1)
 	if err != nil {
 		foreground.Close()
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("failed to create background Mat: %w", err)
 	}
 
 	tbd, err := safe.NewMat(rows, cols, gocv.MatTypeCV8UC1)
 	if err != nil {
 		foreground.Close()
 		background.Close()
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("failed to create TBD Mat: %w", err)
 	}
 
 	gapFactor := p.getFloatParam(params, "lower_upper_gap_factor")
@@ -255,9 +260,10 @@ func (p *Processor) segmentRegion(region *safe.Mat, threshold float64, params ma
 			}
 
 			if pixelValue > 0 {
-				if float64(pixelValue) > upperThreshold {
+				pixelFloat := float64(pixelValue)
+				if pixelFloat > upperThreshold {
 					foreground.SetUCharAt(y, x, 255)
-				} else if float64(pixelValue) < lowerThreshold {
+				} else if pixelFloat < lowerThreshold {
 					background.SetUCharAt(y, x, 255)
 				} else {
 					tbd.SetUCharAt(y, x, 255)
@@ -285,7 +291,7 @@ func (p *Processor) updateResult(result, foregroundMask *safe.Mat) {
 func (p *Processor) extractTBDRegion(original, tbdMask *safe.Mat) (*safe.Mat, error) {
 	result, err := safe.NewMat(original.Rows(), original.Cols(), gocv.MatTypeCV8UC1)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create TBD region Mat: %w", err)
 	}
 
 	rows := original.Rows()
@@ -310,7 +316,7 @@ func (p *Processor) applyPreprocessing(src *safe.Mat) (*safe.Mat, error) {
 
 	dst, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create preprocessed Mat: %w", err)
 	}
 
 	srcMat := src.GetMat()
@@ -318,11 +324,10 @@ func (p *Processor) applyPreprocessing(src *safe.Mat) (*safe.Mat, error) {
 
 	clahe.Apply(srcMat, &dstMat)
 
-	// Apply denoising
 	denoised, err := safe.NewMat(dst.Rows(), dst.Cols(), dst.Type())
 	if err != nil {
 		dst.Close()
-		return nil, err
+		return nil, fmt.Errorf("failed to create denoised Mat: %w", err)
 	}
 
 	denoisedMat := denoised.GetMat()
@@ -336,10 +341,9 @@ func (p *Processor) applyCleanup(src *safe.Mat) (*safe.Mat, error) {
 	kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: 3, Y: 3})
 	defer kernel.Close()
 
-	// Apply opening operation
 	opened, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create opened Mat: %w", err)
 	}
 
 	srcMat := src.GetMat()
@@ -347,11 +351,10 @@ func (p *Processor) applyCleanup(src *safe.Mat) (*safe.Mat, error) {
 
 	gocv.MorphologyEx(srcMat, &openedMat, gocv.MorphOpen, kernel)
 
-	// Apply closing operation
 	closed, err := safe.NewMat(opened.Rows(), opened.Cols(), opened.Type())
 	if err != nil {
 		opened.Close()
-		return nil, err
+		return nil, fmt.Errorf("failed to create closed Mat: %w", err)
 	}
 
 	closedMat := closed.GetMat()
@@ -359,11 +362,10 @@ func (p *Processor) applyCleanup(src *safe.Mat) (*safe.Mat, error) {
 
 	opened.Close()
 
-	// Apply median filtering
 	medianFiltered, err := safe.NewMat(closed.Rows(), closed.Cols(), closed.Type())
 	if err != nil {
 		closed.Close()
-		return nil, err
+		return nil, fmt.Errorf("failed to create median filtered Mat: %w", err)
 	}
 
 	medianMat := medianFiltered.GetMat()

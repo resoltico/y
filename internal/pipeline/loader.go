@@ -1,11 +1,13 @@
 package pipeline
 
 import (
+	"bufio"
 	"fmt"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"otsu-obliterator/internal/logger"
@@ -23,14 +25,15 @@ type imageLoader struct {
 
 func (l *imageLoader) LoadFromReader(reader fyne.URIReadCloser) (*ImageData, error) {
 	originalURI := reader.URI()
-	uriExtension := strings.ToLower(originalURI.Extension())
+	uriExtension := strings.ToLower(filepath.Ext(originalURI.Path()))
 
 	l.logger.Debug("ImageLoader", "loading image", map[string]interface{}{
 		"path":      originalURI.Path(),
 		"extension": uriExtension,
 	})
 
-	data, err := io.ReadAll(reader)
+	bufferedReader := bufio.NewReader(reader)
+	data, err := io.ReadAll(bufferedReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read image data: %w", err)
 	}
@@ -43,18 +46,16 @@ func (l *imageLoader) LoadFromReader(reader fyne.URIReadCloser) (*ImageData, err
 }
 
 func (l *imageLoader) LoadFromBytes(data []byte, format string) (*ImageData, error) {
-	// Decode with standard library for Go image interface
 	img, standardLibFormat, err := image.Decode(strings.NewReader(string(data)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode image with standard library: %w", err)
 	}
 
-	// Decode with OpenCV for Mat operations
 	mat, err := gocv.IMDecode(data, gocv.IMReadColor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode image with OpenCV: %w", err)
 	}
-	defer mat.Close() // Close the gocv.Mat after creating safe wrapper
+	defer mat.Close()
 
 	safeMat, err := safe.NewMatFromMatWithTracker(mat, l.memoryManager, "loaded_image")
 	if err != nil {
@@ -73,7 +74,7 @@ func (l *imageLoader) LoadFromBytes(data []byte, format string) (*ImageData, err
 		Format:   actualFormat,
 	}
 
-	l.logger.Info("ImageLoader", "image loaded successfully", map[string]interface{}{
+	l.logger.Info("ImageLoader", "image loaded", map[string]interface{}{
 		"width":    imageData.Width,
 		"height":   imageData.Height,
 		"channels": imageData.Channels,
