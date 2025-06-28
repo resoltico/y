@@ -115,8 +115,14 @@ func (v *View) SetStage(stage string) {
 	// Stages are now handled through status messages
 }
 
-func (v *View) SetMetrics(psnr, ssim float64) {
-	v.toolbar.SetMetrics(psnr, ssim)
+// SetMetrics sets segmentation quality metrics (deprecated - use SetSegmentationMetrics)
+func (v *View) SetMetrics(iou, dice float64) {
+	v.toolbar.SetMetrics(iou, dice, -1.0) // -1.0 indicates missing misclassification error
+}
+
+// SetSegmentationMetrics sets comprehensive segmentation quality metrics
+func (v *View) SetSegmentationMetrics(iou, dice, misclassError, uniformity, boundaryAccuracy float64) {
+	v.toolbar.SetSegmentationMetrics(iou, dice, misclassError, uniformity, boundaryAccuracy)
 }
 
 func (v *View) ShowError(title string, err error) {

@@ -49,7 +49,7 @@ func (t *Toolbar) createComponents() {
 	t.algorithmSelect.SetSelected("2D Otsu")
 
 	t.statusLabel = widget.NewLabel("Ready")
-	t.metricsLabel = widget.NewLabel("PSNR: -- | SSIM: --")
+	t.metricsLabel = widget.NewLabel("IoU: -- | Dice: -- | Error: --")
 }
 
 func (t *Toolbar) buildLayout() {
@@ -150,11 +150,32 @@ func (t *Toolbar) SetStage(stage string) {
 	// Stage display removed - handled through status messages
 }
 
-func (t *Toolbar) SetMetrics(psnr, ssim float64) {
-	if psnr > 0 && ssim > 0 {
-		text := fmt.Sprintf("PSNR: %.2f dB | SSIM: %.4f", psnr, ssim)
+// SetMetrics displays segmentation quality metrics instead of PSNR/SSIM
+func (t *Toolbar) SetMetrics(iou, dice, misclassError float64) {
+	if iou >= 0 && dice >= 0 && misclassError >= 0 {
+		text := fmt.Sprintf("IoU: %.3f | Dice: %.3f | Error: %.3f", iou, dice, misclassError)
 		t.metricsLabel.SetText(text)
 	} else {
-		t.metricsLabel.SetText("PSNR: -- | SSIM: --")
+		t.metricsLabel.SetText("IoU: -- | Dice: -- | Error: --")
+	}
+}
+
+// SetSegmentationMetrics displays comprehensive segmentation metrics
+func (t *Toolbar) SetSegmentationMetrics(iou, dice, misclassError, uniformity, boundaryAccuracy float64) {
+	if iou >= 0 && dice >= 0 {
+		// Primary metrics in main display
+		t.SetMetrics(iou, dice, misclassError)
+		
+		// Additional context in separate label or extended display if needed
+		// Note: Fyne labels don't support tooltips, so we keep extended info for logging
+	} else {
+		t.metricsLabel.SetText("IoU: -- | Dice: -- | Error: --")
+	}
+}Boundary Accuracy: %.3f",
+			iou, dice, misclassError, uniformity, boundaryAccuracy)
+		t.metricsLabel.SetToolTip(tooltip)
+	} else {
+		t.metricsLabel.SetText("IoU: -- | Dice: -- | Error: --")
+		t.metricsLabel.SetToolTip("")
 	}
 }

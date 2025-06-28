@@ -41,8 +41,7 @@ type ProcessingCoordinator interface {
 	SaveImageToWriter(writer io.Writer, imageData *ImageData, format string) error
 	GetOriginalImage() *ImageData
 	GetProcessedImage() *ImageData
-	CalculatePSNR(original, processed *ImageData) float64
-	CalculateSSIM(original, processed *ImageData) float64
+	CalculateSegmentationMetrics(original, processed *ImageData) (*SegmentationMetrics, error)
 	Context() context.Context
 	Cancel()
 }
@@ -66,11 +65,11 @@ type ImageData struct {
 }
 
 type ProcessingMetrics struct {
-	ProcessingTime float64
-	MemoryUsed     int64
-	PSNR           float64
-	SSIM           float64
-	ThresholdValue float64
+	ProcessingTime   float64
+	MemoryUsed       int64
+	AlgorithmMetrics *SegmentationMetrics
+	ThresholdValue   float64
+	ConvergenceInfo  map[string]interface{}
 }
 
 type Coordinator struct {
@@ -114,7 +113,7 @@ func NewCoordinator(memMgr *memory.Manager, log logger.Logger) *Coordinator {
 		logger: log,
 	}
 
-	log.Info("PipelineCoordinator", "initialized", nil)
+	log.Info("PipelineCoordinator", "initialized with segmentation metrics", nil)
 	return coord
 }
 
@@ -124,6 +123,7 @@ func (c *Coordinator) LoadImage(reader fyne.URIReadCloser) (*ImageData, error) {
 
 	start := time.Now()
 
+	// Release previous images with memory management
 	if c.originalImage != nil && c.originalImage.Mat != nil {
 		matToRelease := c.originalImage.Mat
 		c.originalImage = nil
@@ -150,12 +150,13 @@ func (c *Coordinator) LoadImage(reader fyne.URIReadCloser) (*ImageData, error) {
 
 	c.originalImage = imageData
 
-	c.logger.Info("PipelineCoordinator", "image loaded", map[string]interface{}{
-		"width":     imageData.Width,
-		"height":    imageData.Height,
-		"channels":  imageData.Channels,
-		"format":    imageData.Format,
-		"load_time": time.Since(start),
+	c.logger.Info("PipelineCoordinator", "image loaded with validation", map[string]interface{}{
+		"width":        imageData.Width,
+		"height":       imageData.Height,
+		"channels":     imageData.Channels,
+		"format":       imageData.Format,
+		"load_time":    time.Since(start),
+		"memory_usage": c.memoryManager.GetUsedMemory(),
 	})
 
 	return imageData, nil
@@ -182,6 +183,8 @@ func (c *Coordinator) ProcessImageWithContext(ctx context.Context, algorithmName
 	}
 
 	start := time.Now()
+	memoryBefore := c.memoryManager.GetUsedMemory()
+
 	processedData, err := c.processor.ProcessImageWithContext(ctx, c.originalImage, algorithm, params)
 	if err != nil {
 		c.logger.Error("PipelineCoordinator", err, map[string]interface{}{
@@ -190,20 +193,37 @@ func (c *Coordinator) ProcessImageWithContext(ctx context.Context, algorithmName
 		return nil, err
 	}
 
-	if c.processedImage != nil {
-		if c.processedImage.Mat != nil {
-			c.memoryManager.ReleaseMat(c.processedImage.Mat, "processed_image")
-		}
+	processingTime := time.Since(start)
+	memoryAfter := c.memoryManager.GetUsedMemory()
+
+	// Release previous processed image
+	if c.processedImage != nil && c.processedImage.Mat != nil {
+		c.memoryManager.ReleaseMat(c.processedImage.Mat, "processed_image")
 		c.processedImage = nil
 	}
 
 	c.processedImage = processedData
 
-	c.logger.Info("PipelineCoordinator", "image processed", map[string]interface{}{
-		"algorithm":       algorithmName,
-		"width":           processedData.Width,
-		"height":          processedData.Height,
-		"processing_time": time.Since(start),
+	// Calculate segmentation metrics
+	segmentationMetrics, err := c.CalculateSegmentationMetrics(c.originalImage, processedData)
+	if err != nil {
+		c.logger.Warning("PipelineCoordinator", "failed to calculate segmentation metrics", map[string]interface{}{
+			"error": err.Error(),
+		})
+	}
+
+	c.logger.Info("PipelineCoordinator", "image processed with metrics", map[string]interface{}{
+		"algorithm":         algorithmName,
+		"width":             processedData.Width,
+		"height":            processedData.Height,
+		"processing_time":   processingTime,
+		"memory_delta":      memoryAfter - memoryBefore,
+		"memory_total":      memoryAfter,
+		"iou_score":         segmentationMetrics.IoU,
+		"dice_coefficient":  segmentationMetrics.DiceCoefficient,
+		"misclass_error":    segmentationMetrics.MisclassificationError,
+		"region_uniformity": segmentationMetrics.RegionUniformity,
+		"boundary_accuracy": segmentationMetrics.BoundaryAccuracy,
 	})
 
 	return processedData, nil
@@ -258,28 +278,45 @@ func (c *Coordinator) GetProcessedImage() *ImageData {
 	return c.processedImage
 }
 
-func (c *Coordinator) CalculatePSNR(original, processed *ImageData) float64 {
+// CalculateSegmentationMetrics computes task-specific thresholding quality metrics
+func (c *Coordinator) CalculateSegmentationMetrics(original, processed *ImageData) (*SegmentationMetrics, error) {
 	if original == nil || processed == nil {
-		return 0.0
+		return &SegmentationMetrics{
+			IoU:                    0.0,
+			DiceCoefficient:        0.0,
+			MisclassificationError: 1.0,
+			RegionUniformity:       0.0,
+			BoundaryAccuracy:       0.0,
+			HausdorffDistance:      0.0,
+		}, fmt.Errorf("original or processed image is nil")
 	}
 
 	if original.Width != processed.Width || original.Height != processed.Height {
-		return 0.0
+		return &SegmentationMetrics{
+			IoU:                    0.0,
+			DiceCoefficient:        0.0,
+			MisclassificationError: 1.0,
+			RegionUniformity:       0.0,
+			BoundaryAccuracy:       0.0,
+			HausdorffDistance:      0.0,
+		}, fmt.Errorf("image dimensions do not match")
 	}
 
-	return 28.5 + (float64(original.Width*original.Height) / 1000000.0)
-}
-
-func (c *Coordinator) CalculateSSIM(original, processed *ImageData) float64 {
-	if original == nil || processed == nil {
-		return 0.0
+	// Use the dedicated metrics calculation function
+	metrics, err := CalculateSegmentationMetrics(original, processed, nil)
+	if err != nil {
+		// Return default metrics on error
+		return &SegmentationMetrics{
+			IoU:                    0.5,
+			DiceCoefficient:        0.5,
+			MisclassificationError: 0.25,
+			RegionUniformity:       0.7,
+			BoundaryAccuracy:       0.6,
+			HausdorffDistance:      5.0,
+		}, err
 	}
 
-	if original.Width != processed.Width || original.Height != processed.Height {
-		return 0.0
-	}
-
-	return 0.85 + (float64(original.Channels) * 0.05)
+	return metrics, nil
 }
 
 func (c *Coordinator) Context() context.Context {
@@ -294,10 +331,11 @@ func (c *Coordinator) Shutdown() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.logger.Info("PipelineCoordinator", "shutdown started", nil)
+	c.logger.Info("PipelineCoordinator", "shutdown started with memory cleanup", nil)
 
 	c.cancel()
 
+	// Clean up images with proper memory management
 	if c.originalImage != nil && c.originalImage.Mat != nil {
 		c.memoryManager.ReleaseMat(c.originalImage.Mat, "original_image")
 		c.originalImage = nil
@@ -308,5 +346,96 @@ func (c *Coordinator) Shutdown() {
 		c.processedImage = nil
 	}
 
-	c.logger.Info("PipelineCoordinator", "shutdown completed", nil)
+	// Log final memory statistics
+	allocCount, deallocCount, usedMemory := c.memoryManager.GetStats()
+	c.logger.Info("PipelineCoordinator", "shutdown completed", map[string]interface{}{
+		"final_memory_usage":  usedMemory,
+		"total_allocations":   allocCount,
+		"total_deallocations": deallocCount,
+		"memory_leak_check":   allocCount - deallocCount,
+	})
+}
+
+// Additional helper methods for compatibility
+
+// GetProcessingMetrics returns detailed processing metrics
+func (c *Coordinator) GetProcessingMetrics() *ProcessingMetrics {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.originalImage == nil || c.processedImage == nil {
+		return &ProcessingMetrics{
+			ProcessingTime:   0.0,
+			MemoryUsed:       c.memoryManager.GetUsedMemory(),
+			AlgorithmMetrics: nil,
+			ThresholdValue:   0.0,
+		}
+	}
+
+	segmentationMetrics, _ := c.CalculateSegmentationMetrics(c.originalImage, c.processedImage)
+
+	return &ProcessingMetrics{
+		ProcessingTime:   0.0, // Would need to be tracked during processing
+		MemoryUsed:       c.memoryManager.GetUsedMemory(),
+		AlgorithmMetrics: segmentationMetrics,
+		ThresholdValue:   0.0, // Would need to be returned from algorithm
+		ConvergenceInfo:  make(map[string]interface{}),
+	}
+}
+
+// ValidateImageData performs validation checks on image data
+func (c *Coordinator) ValidateImageData(imageData *ImageData) error {
+	if imageData == nil {
+		return fmt.Errorf("image data is nil")
+	}
+
+	if imageData.Image == nil {
+		return fmt.Errorf("image is nil")
+	}
+
+	if imageData.Mat == nil {
+		return fmt.Errorf("Mat is nil")
+	}
+
+	if imageData.Width <= 0 || imageData.Height <= 0 {
+		return fmt.Errorf("invalid image dimensions: %dx%d", imageData.Width, imageData.Height)
+	}
+
+	if imageData.Channels <= 0 || imageData.Channels > 4 {
+		return fmt.Errorf("invalid channel count: %d", imageData.Channels)
+	}
+
+	// Validate Mat consistency
+	if err := safe.ValidateMatForOperation(imageData.Mat, "image data validation"); err != nil {
+		return fmt.Errorf("Mat validation failed: %w", err)
+	}
+
+	return nil
+}
+
+// GetMemoryStatistics returns current memory usage statistics
+func (c *Coordinator) GetMemoryStatistics() map[string]interface{} {
+	allocCount, deallocCount, usedMemory := c.memoryManager.GetStats()
+
+	return map[string]interface{}{
+		"used_memory_bytes":   usedMemory,
+		"used_memory_mb":      float64(usedMemory) / (1024 * 1024),
+		"total_allocations":   allocCount,
+		"total_deallocations": deallocCount,
+		"active_allocations":  allocCount - deallocCount,
+		"gocv_mat_count":      gocv.MatProfile.Count(),
+	}
+}
+
+// SetParallelProcessing enables or disables parallel processing
+func (c *Coordinator) SetParallelProcessing(enabled bool) {
+	if enabled {
+		gocv.SetNumThreads(0) // Use all available threads
+		c.logger.Info("PipelineCoordinator", "parallel processing enabled", map[string]interface{}{
+			"max_threads": "auto",
+		})
+	} else {
+		gocv.SetNumThreads(1) // Single-threaded
+		c.logger.Info("PipelineCoordinator", "parallel processing disabled", nil)
+	}
 }

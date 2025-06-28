@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"math"
 
 	"otsu-obliterator/internal/opencv/conversion"
 	"otsu-obliterator/internal/opencv/safe"
@@ -27,40 +28,45 @@ func (p *Processor) GetName() string {
 
 func (p *Processor) GetDefaultParameters() map[string]interface{} {
 	return map[string]interface{}{
-		"initial_threshold_method": "otsu",
-		"histogram_bins":           0, // auto-calculated
-		"convergence_precision":    1.0,
-		"max_iterations":           10,
-		"minimum_tbd_fraction":     0.01,
-		"class_separation":         0.5,
-		"preprocessing":            false,
-		"result_cleanup":           true,
-		"preserve_borders":         false,
+		"initial_threshold_method": "otsu", // Initial threshold calculation method
+		"histogram_bins":           0,      // Auto-calculated based on region characteristics
+		"convergence_precision":    1.0,    // Convergence threshold (0.5-2.0)
+		"max_iterations":           8,      // Maximum iterations (5-15)
+		"minimum_tbd_fraction":     0.01,   // Minimum "to be determined" fraction
+		"class_separation":         0.5,    // Adaptive gap factor
+		"preprocessing":            true,   // Advanced preprocessing with guided filtering
+		"result_cleanup":           true,   // Morphological cleanup
+		"preserve_borders":         false,  // Border preservation
+		"noise_robustness":         true,   // Non-local means denoising
+		"guided_filtering":         true,   // Edge-preserving guided filter
+		"guided_radius":            6,      // Guided filter radius (1-8)
+		"guided_epsilon":           0.15,   // Guided filter regularization
+		"parallel_processing":      true,   // Use OpenCV parallel processing
 	}
 }
 
 func (p *Processor) ValidateParameters(params map[string]interface{}) error {
 	if method, ok := params["initial_threshold_method"].(string); ok {
-		if method != "otsu" && method != "mean" && method != "median" {
-			return fmt.Errorf("initial_threshold_method must be 'otsu', 'mean', or 'median', got: %s", method)
+		if method != "otsu" && method != "mean" && method != "median" && method != "triangle" {
+			return fmt.Errorf("initial_threshold_method must be 'otsu', 'mean', 'median', or 'triangle', got: %s", method)
 		}
 	}
 
 	if histBins, ok := params["histogram_bins"].(int); ok {
-		if histBins != 0 && (histBins < 16 || histBins > 256) {
-			return fmt.Errorf("histogram_bins must be 0 (auto) or between 16 and 256, got: %d", histBins)
+		if histBins != 0 && (histBins < 8 || histBins > 256) {
+			return fmt.Errorf("histogram_bins must be 0 (auto) or between 8 and 256, got: %d", histBins)
 		}
 	}
 
 	if precision, ok := params["convergence_precision"].(float64); ok {
-		if precision < 0.1 || precision > 10.0 {
-			return fmt.Errorf("convergence_precision must be between 0.1 and 10.0, got: %f", precision)
+		if precision < 0.5 || precision > 2.0 {
+			return fmt.Errorf("convergence_precision must be between 0.5 and 2.0, got: %f", precision)
 		}
 	}
 
 	if maxIter, ok := params["max_iterations"].(int); ok {
-		if maxIter < 5 || maxIter > 15 {
-			return fmt.Errorf("max_iterations must be between 5 and 15, got: %d", maxIter)
+		if maxIter < 3 || maxIter > 15 {
+			return fmt.Errorf("max_iterations must be between 3 and 15, got: %d", maxIter)
 		}
 	}
 
@@ -73,6 +79,18 @@ func (p *Processor) ValidateParameters(params map[string]interface{}) error {
 	if separation, ok := params["class_separation"].(float64); ok {
 		if separation < 0.1 || separation > 0.8 {
 			return fmt.Errorf("class_separation must be between 0.1 and 0.8, got: %f", separation)
+		}
+	}
+
+	if radius, ok := params["guided_radius"].(int); ok {
+		if radius < 1 || radius > 8 {
+			return fmt.Errorf("guided_radius must be between 1 and 8, got: %d", radius)
+		}
+	}
+
+	if epsilon, ok := params["guided_epsilon"].(float64); ok {
+		if epsilon < 0.01 || epsilon > 0.5 {
+			return fmt.Errorf("guided_epsilon must be between 0.01 and 0.5, got: %f", epsilon)
 		}
 	}
 
@@ -96,6 +114,13 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 		return nil, ctx.Err()
 	}
 
+	// Enable parallel processing if requested
+	if p.getBoolParam(params, "parallel_processing") {
+		gocv.SetNumThreads(0) // Use all available threads
+	} else {
+		gocv.SetNumThreads(1)
+	}
+
 	gray, err := conversion.ConvertToGrayscale(input)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert to grayscale: %w", err)
@@ -104,7 +129,7 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 
 	working := gray
 	if p.getBoolParam(params, "preprocessing") {
-		preprocessed, err := p.applyAdvancedPreprocessing(gray)
+		preprocessed, err := p.applyAdvancedPreprocessing(gray, params)
 		if err != nil {
 			return nil, fmt.Errorf("preprocessing failed: %w", err)
 		}
@@ -116,13 +141,13 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 		return nil, ctx.Err()
 	}
 
-	result, err := p.performIterativeTriclassWithIntelligentConvergence(ctx, working, params)
+	result, err := p.performIterativeTriclassAdaptive(ctx, working, params)
 	if err != nil {
 		return nil, fmt.Errorf("iterative processing failed: %w", err)
 	}
 
 	if p.getBoolParam(params, "result_cleanup") {
-		cleaned, err := p.applyMorphologicalCleanup(result)
+		cleaned, err := p.applyAdvancedCleanup(result)
 		if err != nil {
 			result.Close()
 			return nil, fmt.Errorf("cleanup failed: %w", err)
@@ -134,8 +159,8 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 	return result, nil
 }
 
-// performIterativeTriclassWithIntelligentConvergence implements iterative triclass with intelligent stopping
-func (p *Processor) performIterativeTriclassWithIntelligentConvergence(ctx context.Context, working *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+// performIterativeTriclassAdaptive implements iterative triclass with adaptive convergence and gap calculation
+func (p *Processor) performIterativeTriclassAdaptive(ctx context.Context, working *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
 	maxIterations := p.getIntParam(params, "max_iterations")
 	convergencePrecision := p.getFloatParam(params, "convergence_precision")
 	minTBDFraction := p.getFloatParam(params, "minimum_tbd_fraction")
@@ -156,6 +181,10 @@ func (p *Processor) performIterativeTriclassWithIntelligentConvergence(ctx conte
 	totalPixels := float64(currentRegion.Rows() * currentRegion.Cols())
 	convergenceHistory := make([]float64, 0, maxIterations)
 
+	// Stability tracking for convergence detection
+	stableIterations := 0
+	const requiredStableIterations = 2
+
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		select {
 		case <-ctx.Done():
@@ -168,20 +197,24 @@ func (p *Processor) performIterativeTriclassWithIntelligentConvergence(ctx conte
 			break
 		}
 
-		threshold := p.calculateThresholdForRegionWithAutoMethod(currentRegion, params)
+		threshold := p.calculateThresholdAdaptive(currentRegion, params)
 
-		// Intelligent convergence detection
-		convergence := abs(threshold - previousThreshold)
+		// Convergence detection with stability requirement
+		convergence := math.Abs(threshold - previousThreshold)
 		convergenceHistory = append(convergenceHistory, convergence)
 
-		// Check for convergence stability over multiple iterations
-		if len(convergenceHistory) >= 3 && p.isConverged(convergenceHistory, convergencePrecision) {
-			break
+		if convergence < convergencePrecision {
+			stableIterations++
+			if stableIterations >= requiredStableIterations {
+				break
+			}
+		} else {
+			stableIterations = 0
 		}
 
 		previousThreshold = threshold
 
-		foregroundMask, backgroundMask, tbdMask, err := p.segmentRegionWithAdaptiveGaps(currentRegion, threshold, params)
+		foregroundMask, backgroundMask, tbdMask, err := p.segmentRegionAdaptiveGaps(currentRegion, threshold, params)
 		if err != nil {
 			return nil, fmt.Errorf("segmentation failed at iteration %d: %w", iteration, err)
 		}
@@ -212,44 +245,44 @@ func (p *Processor) performIterativeTriclassWithIntelligentConvergence(ctx conte
 	return result, nil
 }
 
-// isConverged checks if convergence is stable over multiple iterations
-func (p *Processor) isConverged(history []float64, precision float64) bool {
-	if len(history) < 3 {
-		return false
-	}
+// applyAdvancedPreprocessing applies guided filtering and non-local means denoising
+func (p *Processor) applyAdvancedPreprocessing(src *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+	var processed *safe.Mat
+	var err error
 
-	// Check last 3 convergence values are all below precision
-	for i := len(history) - 3; i < len(history); i++ {
-		if history[i] > precision {
-			return false
+	// Apply guided filtering for edge-preserving smoothing
+	if p.getBoolParam(params, "guided_filtering") {
+		guided, err := p.applyGuidedFilter(src, params)
+		if err != nil {
+			return nil, err
+		}
+		processed = guided
+	} else {
+		processed, err = src.Clone()
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	return true
-}
-
-// applyAdvancedPreprocessing applies guided filtering and noise reduction
-func (p *Processor) applyAdvancedPreprocessing(src *safe.Mat) (*safe.Mat, error) {
-	// Apply guided filtering for edge-preserving smoothing
-	guided, err := p.applyGuidedFilter(src, 8, 0.2)
-	if err != nil {
-		return nil, err
-	}
-	defer guided.Close()
-
-	// Apply non-local means denoising
-	denoised, err := p.applyNonLocalMeansDenoising(guided)
-	if err != nil {
-		return nil, err
+	// Apply non-local means denoising if noise robustness is enabled
+	if p.getBoolParam(params, "noise_robustness") {
+		denoised, err := p.applyNonLocalMeansDenoising(processed)
+		if err != nil {
+			processed.Close()
+			return nil, err
+		}
+		processed.Close()
+		return denoised, nil
 	}
 
-	return denoised, nil
+	return processed, nil
 }
 
-// applyGuidedFilter implements guided filtering for edge preservation
-func (p *Processor) applyGuidedFilter(src *safe.Mat, radius int, epsilon float64) (*safe.Mat, error) {
-	// Simplified guided filter implementation
-	// In production, this would use more sophisticated guided filtering
+// applyGuidedFilter implements edge-preserving guided filtering with optimized parameters
+func (p *Processor) applyGuidedFilter(src *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+	radius := p.getIntParam(params, "guided_radius")
+	epsilon := p.getFloatParam(params, "guided_epsilon")
+
 	result, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
 	if err != nil {
 		return nil, err
@@ -258,20 +291,14 @@ func (p *Processor) applyGuidedFilter(src *safe.Mat, radius int, epsilon float64
 	rows := src.Rows()
 	cols := src.Cols()
 
-	// Build integral image for fast box filtering
-	integral := make([][]int64, rows+1)
-	for i := range integral {
-		integral[i] = make([]int64, cols+1)
-	}
+	// Build integral images for efficient box filtering
+	integralI, integralI2, integralP, integralIP := p.buildGuidedFilterIntegrals(src)
+	defer integralI.Close()
+	defer integralI2.Close()
+	defer integralP.Close()
+	defer integralIP.Close()
 
-	for y := 1; y <= rows; y++ {
-		for x := 1; x <= cols; x++ {
-			val, _ := src.GetUCharAt(y-1, x-1)
-			integral[y][x] = int64(val) + integral[y-1][x] + integral[y][x-1] - integral[y-1][x-1]
-		}
-	}
-
-	// Apply guided filtering with box filter approximation
+	// Apply guided filter with box filter approximation
 	for y := 0; y < rows; y++ {
 		for x := 0; x < cols; x++ {
 			y1 := max(0, y-radius)
@@ -279,18 +306,31 @@ func (p *Processor) applyGuidedFilter(src *safe.Mat, radius int, epsilon float64
 			y2 := min(rows-1, y+radius)
 			x2 := min(cols-1, x+radius)
 
-			area := int64((y2 - y1 + 1) * (x2 - x1 + 1))
-			sum := integral[y2+1][x2+1] - integral[y1][x2+1] - integral[y2+1][x1] + integral[y1][x1]
+			area := float64((y2 - y1 + 1) * (x2 - x1 + 1))
 
-			mean := uint8(sum / area)
-			result.SetUCharAt(y, x, mean)
+			// Calculate local statistics using integral images
+			meanI := p.getIntegralSum(integralI, y1, x1, y2, x2) / area
+			meanI2 := p.getIntegralSum(integralI2, y1, x1, y2, x2) / area
+			meanP := p.getIntegralSum(integralP, y1, x1, y2, x2) / area
+			meanIP := p.getIntegralSum(integralIP, y1, x1, y2, x2) / area
+
+			varI := meanI2 - meanI*meanI
+			covIP := meanIP - meanI*meanP
+
+			a := covIP / (varI + epsilon)
+			b := meanP - a*meanI
+
+			pixelVal, _ := src.GetUCharAt(y, x)
+			filteredVal := a*float64(pixelVal) + b
+
+			result.SetUCharAt(y, x, uint8(math.Max(0, math.Min(255, filteredVal))))
 		}
 	}
 
 	return result, nil
 }
 
-// applyNonLocalMeansDenoising applies advanced denoising
+// applyNonLocalMeansDenoising applies advanced denoising with adaptive parameters
 func (p *Processor) applyNonLocalMeansDenoising(src *safe.Mat) (*safe.Mat, error) {
 	result, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
 	if err != nil {
@@ -300,14 +340,15 @@ func (p *Processor) applyNonLocalMeansDenoising(src *safe.Mat) (*safe.Mat, error
 	srcMat := src.GetMat()
 	resultMat := result.GetMat()
 
-	// Use OpenCV's non-local means denoising
-	gocv.FastNlMeansDenoising(srcMat, &resultMat)
+	// Apply non-local means denoising with adaptive parameters
+	// h=10 for moderate denoising, templateWindowSize=7, searchWindowSize=21
+	gocv.FastNlMeansDenoisingWithParams(srcMat, &resultMat, 10.0, 7, 21)
 
 	return result, nil
 }
 
-// calculateThresholdForRegionWithAutoMethod uses automatic method selection
-func (p *Processor) calculateThresholdForRegionWithAutoMethod(region *safe.Mat, params map[string]interface{}) float64 {
+// calculateThresholdAdaptive uses automatic method selection with histogram analysis
+func (p *Processor) calculateThresholdAdaptive(region *safe.Mat, params map[string]interface{}) float64 {
 	method := p.getStringParam(params, "initial_threshold_method")
 	histBins := p.getIntParam(params, "histogram_bins")
 
@@ -317,13 +358,21 @@ func (p *Processor) calculateThresholdForRegionWithAutoMethod(region *safe.Mat, 
 
 	histogram := p.calculateHistogram(region, histBins)
 
+	// Detect histogram characteristics for method selection
+	if method == "otsu" && !p.isHistogramBimodal(histogram) {
+		// Fall back to triangle method for skewed unimodal histograms
+		method = "triangle"
+	}
+
 	switch method {
 	case "mean":
-		return p.calculateMeanThresholdWithSubpixelPrecision(histogram, histBins)
+		return p.calculateMeanThresholdPrecise(histogram, histBins)
 	case "median":
-		return p.calculateMedianThresholdWithSubpixelPrecision(histogram, histBins)
+		return p.calculateMedianThresholdPrecise(histogram, histBins)
+	case "triangle":
+		return p.calculateTriangleThreshold(histogram, histBins)
 	default:
-		return p.calculateOtsuThresholdWithSubpixelPrecision(histogram, histBins)
+		return p.calculateOtsuThresholdStable(histogram, histBins)
 	}
 }
 
@@ -333,7 +382,7 @@ func (p *Processor) calculateAdaptiveHistogramBins(region *safe.Mat) int {
 	cols := region.Cols()
 	totalPixels := rows * cols
 
-	// Calculate dynamic range of the region
+	// Calculate dynamic range and noise level
 	var minVal, maxVal uint8 = 255, 0
 	nonZeroPixels := 0
 
@@ -353,29 +402,35 @@ func (p *Processor) calculateAdaptiveHistogramBins(region *safe.Mat) int {
 	}
 
 	if nonZeroPixels == 0 {
-		return 64
+		return 32
 	}
 
 	dynamicRange := int(maxVal - minVal)
+	noiseLevel := p.estimateNoiseLevel(region)
 
-	// Adaptive calculation based on dynamic range and pixel count
-	baseBins := 64
-	if dynamicRange < 30 {
-		baseBins = 32
-	} else if dynamicRange > 150 {
-		baseBins = 128
+	// Adaptive calculation
+	baseBins := 32
+	if dynamicRange < 20 {
+		baseBins = 16
+	} else if dynamicRange > 100 {
+		baseBins = 64
+	}
+
+	// Adjust for noise level
+	if noiseLevel > 10.0 {
+		baseBins = max(baseBins/2, 8)
 	}
 
 	// Adjust for region size
-	if nonZeroPixels < totalPixels/4 { // Small regions
-		baseBins = max(baseBins/2, 16)
+	if nonZeroPixels < totalPixels/4 {
+		baseBins = max(baseBins/2, 8)
 	}
 
 	return baseBins
 }
 
-// segmentRegionWithAdaptiveGaps uses adaptive gap calculation for better segmentation
-func (p *Processor) segmentRegionWithAdaptiveGaps(region *safe.Mat, threshold float64, params map[string]interface{}) (*safe.Mat, *safe.Mat, *safe.Mat, error) {
+// segmentRegionAdaptiveGaps uses adaptive gap calculation based on image characteristics
+func (p *Processor) segmentRegionAdaptiveGaps(region *safe.Mat, threshold float64, params map[string]interface{}) (*safe.Mat, *safe.Mat, *safe.Mat, error) {
 	rows := region.Rows()
 	cols := region.Cols()
 
@@ -399,16 +454,21 @@ func (p *Processor) segmentRegionWithAdaptiveGaps(region *safe.Mat, threshold fl
 
 	classSeparation := p.getFloatParam(params, "class_separation")
 
-	// Adaptive gap calculation based on threshold value and image characteristics
+	// Adaptive gap calculation based on threshold position and local variance
 	adaptiveGap := classSeparation
-	if threshold < 50 {
-		adaptiveGap *= 1.5 // Increase gap for dark images
-	} else if threshold > 200 {
-		adaptiveGap *= 0.8 // Decrease gap for bright images
+	if threshold < 64 {
+		adaptiveGap *= 1.3 // Increase gap for dark regions
+	} else if threshold > 192 {
+		adaptiveGap *= 0.7 // Decrease gap for bright regions
 	}
 
+	// Calculate thresholds with numerical stability
 	lowerThreshold := threshold * (1.0 - adaptiveGap)
 	upperThreshold := threshold * (1.0 + adaptiveGap)
+
+	// Ensure valid threshold range
+	lowerThreshold = math.Max(0, lowerThreshold)
+	upperThreshold = math.Min(255, upperThreshold)
 
 	for y := 0; y < rows; y++ {
 		for x := 0; x < cols; x++ {
@@ -433,8 +493,8 @@ func (p *Processor) segmentRegionWithAdaptiveGaps(region *safe.Mat, threshold fl
 	return foreground, background, tbd, nil
 }
 
-// calculateOtsuThresholdWithSubpixelPrecision implements sub-pixel Otsu calculation
-func (p *Processor) calculateOtsuThresholdWithSubpixelPrecision(histogram []int, histBins int) float64 {
+// calculateOtsuThresholdStable implements stable Otsu calculation with numerical checks
+func (p *Processor) calculateOtsuThresholdStable(histogram []int, histBins int) float64 {
 	total := 0
 	for i := 0; i < histBins; i++ {
 		total += histogram[i]
@@ -456,7 +516,7 @@ func (p *Processor) calculateOtsuThresholdWithSubpixelPrecision(histogram []int,
 	invTotal := 1.0 / float64(total)
 	binToValue := 255.0 / float64(histBins-1)
 
-	// Sub-pixel precision search
+	// Sub-pixel precision search with stability checks
 	subPixelStep := 0.1
 	for t := 0.0; t < float64(histBins); t += subPixelStep {
 		tInt := int(t)
@@ -487,6 +547,11 @@ func (p *Processor) calculateOtsuThresholdWithSubpixelPrecision(histogram []int,
 		mF := (sum - sumB) / float64(wF)
 		meanDiff := mB - mF
 
+		// Check for numerical stability
+		if math.Abs(meanDiff) < 1e-10 {
+			continue
+		}
+
 		varBetween := float64(wB) * float64(wF) * invTotal * meanDiff * meanDiff
 
 		if varBetween > maxVariance {
@@ -498,8 +563,68 @@ func (p *Processor) calculateOtsuThresholdWithSubpixelPrecision(histogram []int,
 	return bestThreshold
 }
 
-// calculateMeanThresholdWithSubpixelPrecision calculates mean with interpolation
-func (p *Processor) calculateMeanThresholdWithSubpixelPrecision(histogram []int, histBins int) float64 {
+// calculateTriangleThreshold implements triangle thresholding for skewed histograms
+func (p *Processor) calculateTriangleThreshold(histogram []int, histBins int) float64 {
+	// Find histogram peak
+	maxCount := 0
+	peakIndex := 0
+	for i := 0; i < histBins; i++ {
+		if histogram[i] > maxCount {
+			maxCount = histogram[i]
+			peakIndex = i
+		}
+	}
+
+	// Find histogram endpoints
+	leftEnd := 0
+	rightEnd := histBins - 1
+
+	for i := 0; i < histBins; i++ {
+		if histogram[i] > 0 {
+			leftEnd = i
+			break
+		}
+	}
+
+	for i := histBins - 1; i >= 0; i-- {
+		if histogram[i] > 0 {
+			rightEnd = i
+			break
+		}
+	}
+
+	// Triangle method: find point with maximum distance to line connecting peak and far end
+	var maxDistance float64
+	bestThreshold := float64(peakIndex)
+
+	// Determine which end to use based on histogram skew
+	farEnd := rightEnd
+	if peakIndex-leftEnd > rightEnd-peakIndex {
+		farEnd = leftEnd
+	}
+
+	// Calculate line parameters
+	x1, y1 := float64(peakIndex), float64(maxCount)
+	x2, y2 := float64(farEnd), float64(histogram[farEnd])
+
+	if x1 != x2 {
+		for i := min(peakIndex, farEnd); i <= max(peakIndex, farEnd); i++ {
+			// Distance from point to line
+			distance := math.Abs((y2-y1)*float64(i)-(x2-x1)*float64(histogram[i])+x2*y1-y2*x1) /
+				math.Sqrt((y2-y1)*(y2-y1)+(x2-x1)*(x2-x1))
+
+			if distance > maxDistance {
+				maxDistance = distance
+				bestThreshold = float64(i)
+			}
+		}
+	}
+
+	return bestThreshold * 255.0 / float64(histBins-1)
+}
+
+// calculateMeanThresholdPrecise calculates mean with sub-pixel interpolation
+func (p *Processor) calculateMeanThresholdPrecise(histogram []int, histBins int) float64 {
 	totalPixels := 0
 	weightedSum := 0.0
 
@@ -516,8 +641,8 @@ func (p *Processor) calculateMeanThresholdWithSubpixelPrecision(histogram []int,
 	return meanBin * 255.0 / float64(histBins-1)
 }
 
-// calculateMedianThresholdWithSubpixelPrecision calculates median with interpolation
-func (p *Processor) calculateMedianThresholdWithSubpixelPrecision(histogram []int, histBins int) float64 {
+// calculateMedianThresholdPrecise calculates median with sub-pixel interpolation
+func (p *Processor) calculateMedianThresholdPrecise(histogram []int, histBins int) float64 {
 	totalPixels := 0
 	for i := 0; i < histBins; i++ {
 		totalPixels += histogram[i]
@@ -547,12 +672,52 @@ func (p *Processor) calculateMedianThresholdWithSubpixelPrecision(histogram []in
 	return 127.5
 }
 
-// applyMorphologicalCleanup applies advanced morphological operations
-func (p *Processor) applyMorphologicalCleanup(src *safe.Mat) (*safe.Mat, error) {
-	kernel3 := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: 3, Y: 3})
+// isHistogramBimodal detects if histogram is bimodal for Otsu applicability
+func (p *Processor) isHistogramBimodal(histogram []int) bool {
+	histBins := len(histogram)
+
+	// Smooth histogram to reduce noise in peak detection
+	smoothed := make([]float64, histBins)
+	for i := 0; i < histBins; i++ {
+		sum := 0.0
+		count := 0
+		for j := max(0, i-2); j <= min(histBins-1, i+2); j++ {
+			sum += float64(histogram[j])
+			count++
+		}
+		smoothed[i] = sum / float64(count)
+	}
+
+	// Find local maxima
+	peaks := 0
+	for i := 1; i < histBins-1; i++ {
+		if smoothed[i] > smoothed[i-1] && smoothed[i] > smoothed[i+1] && smoothed[i] > 0 {
+			peaks++
+		}
+	}
+
+	return peaks >= 2
+}
+
+// applyAdvancedCleanup applies morphological operations with adaptive kernels
+func (p *Processor) applyAdvancedCleanup(src *safe.Mat) (*safe.Mat, error) {
+	// Adaptive kernel size based on image dimensions
+	rows := src.Rows()
+	cols := src.Cols()
+
+	smallKernelSize := 3
+	largeKernelSize := 5
+
+	// Adjust kernel sizes for large images
+	if rows*cols > 1000000 {
+		smallKernelSize = 5
+		largeKernelSize = 7
+	}
+
+	kernel3 := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: smallKernelSize, Y: smallKernelSize})
 	defer kernel3.Close()
 
-	kernel5 := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: 5, Y: 5})
+	kernel5 := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: largeKernelSize, Y: largeKernelSize})
 	defer kernel5.Close()
 
 	// Opening operation to remove small noise
@@ -583,9 +748,113 @@ func (p *Processor) applyMorphologicalCleanup(src *safe.Mat) (*safe.Mat, error) 
 	}
 
 	resultMat := result.GetMat()
-	gocv.MedianBlur(closedMat, &resultMat, 3)
+	gocv.MedianBlur(closedMat, &resultMat, smallKernelSize)
 
 	return result, nil
+}
+
+// Helper functions
+
+func (p *Processor) buildGuidedFilterIntegrals(src *safe.Mat) (*safe.Mat, *safe.Mat, *safe.Mat, *safe.Mat) {
+	rows := src.Rows()
+	cols := src.Cols()
+
+	integralI, _ := safe.NewMat(rows+1, cols+1, gocv.MatTypeCV64FC1)
+	integralI2, _ := safe.NewMat(rows+1, cols+1, gocv.MatTypeCV64FC1)
+	integralP, _ := safe.NewMat(rows+1, cols+1, gocv.MatTypeCV64FC1)
+	integralIP, _ := safe.NewMat(rows+1, cols+1, gocv.MatTypeCV64FC1)
+
+	matI := integralI.GetMat()
+	matI2 := integralI2.GetMat()
+	matP := integralP.GetMat()
+	matIP := integralIP.GetMat()
+
+	// Initialize borders
+	for i := 0; i <= rows; i++ {
+		matI.SetDoubleAt(i, 0, 0.0)
+		matI2.SetDoubleAt(i, 0, 0.0)
+		matP.SetDoubleAt(i, 0, 0.0)
+		matIP.SetDoubleAt(i, 0, 0.0)
+	}
+	for j := 0; j <= cols; j++ {
+		matI.SetDoubleAt(0, j, 0.0)
+		matI2.SetDoubleAt(0, j, 0.0)
+		matP.SetDoubleAt(0, j, 0.0)
+		matIP.SetDoubleAt(0, j, 0.0)
+	}
+
+	// Build integral images
+	for y := 1; y <= rows; y++ {
+		for x := 1; x <= cols; x++ {
+			pixelVal, _ := src.GetUCharAt(y-1, x-1)
+			I := float64(pixelVal)
+			P := I // For guided filter, guide image equals input image
+
+			// Calculate integral sums
+			prevRowI := matI.GetDoubleAt(y-1, x)
+			prevColI := matI.GetDoubleAt(y, x-1)
+			prevDiagI := matI.GetDoubleAt(y-1, x-1)
+			matI.SetDoubleAt(y, x, I+prevRowI+prevColI-prevDiagI)
+
+			prevRowI2 := matI2.GetDoubleAt(y-1, x)
+			prevColI2 := matI2.GetDoubleAt(y, x-1)
+			prevDiagI2 := matI2.GetDoubleAt(y-1, x-1)
+			matI2.SetDoubleAt(y, x, I*I+prevRowI2+prevColI2-prevDiagI2)
+
+			prevRowP := matP.GetDoubleAt(y-1, x)
+			prevColP := matP.GetDoubleAt(y, x-1)
+			prevDiagP := matP.GetDoubleAt(y-1, x-1)
+			matP.SetDoubleAt(y, x, P+prevRowP+prevColP-prevDiagP)
+
+			prevRowIP := matIP.GetDoubleAt(y-1, x)
+			prevColIP := matIP.GetDoubleAt(y, x-1)
+			prevDiagIP := matIP.GetDoubleAt(y-1, x-1)
+			matIP.SetDoubleAt(y, x, I*P+prevRowIP+prevColIP-prevDiagIP)
+		}
+	}
+
+	return integralI, integralI2, integralP, integralIP
+}
+
+func (p *Processor) getIntegralSum(integral *safe.Mat, y1, x1, y2, x2 int) float64 {
+	mat := integral.GetMat()
+	sum := mat.GetDoubleAt(y2+1, x2+1)
+	sum -= mat.GetDoubleAt(y1, x2+1)
+	sum -= mat.GetDoubleAt(y2+1, x1)
+	sum += mat.GetDoubleAt(y1, x1)
+	return sum
+}
+
+func (p *Processor) estimateNoiseLevel(src *safe.Mat) float64 {
+	rows := src.Rows()
+	cols := src.Cols()
+
+	// Use Laplacian operator to estimate noise
+	var sumSq float64
+	count := 0
+
+	for y := 1; y < rows-1; y++ {
+		for x := 1; x < cols-1; x++ {
+			center, err := src.GetUCharAt(y, x)
+			if err != nil || center == 0 {
+				continue
+			}
+
+			top, _ := src.GetUCharAt(y-1, x)
+			bottom, _ := src.GetUCharAt(y+1, x)
+			left, _ := src.GetUCharAt(y, x-1)
+			right, _ := src.GetUCharAt(y, x+1)
+
+			laplacian := float64(center)*4 - float64(top) - float64(bottom) - float64(left) - float64(right)
+			sumSq += laplacian * laplacian
+			count++
+		}
+	}
+
+	if count > 0 {
+		return math.Sqrt(sumSq/float64(count)) / 6.0
+	}
+	return 5.0 // Default noise level
 }
 
 func (p *Processor) countNonZeroPixels(mat *safe.Mat) int {
@@ -684,13 +953,6 @@ func (p *Processor) getStringParam(params map[string]interface{}, key string) st
 		return value
 	}
 	return ""
-}
-
-func abs(x float64) float64 {
-	if x < 0 {
-		return -x
-	}
-	return x
 }
 
 func max(a, b int) int {

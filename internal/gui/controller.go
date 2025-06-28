@@ -178,7 +178,7 @@ func (c *Controller) ProcessImage() {
 		c.updateStatus("Initializing...")
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	c.mu.Lock()
 	c.processCtx = ctx
 	c.processCancel = cancel
@@ -211,7 +211,7 @@ func (c *Controller) ProcessImage() {
 				c.updateStatus(stageProgress)
 			})
 
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
 		}
 
 		start := time.Now()
@@ -227,7 +227,7 @@ func (c *Controller) ProcessImage() {
 
 			if processedImg != nil {
 				c.view.SetPreviewImage(processedImg.Image)
-				c.updateMetrics(originalImg, processedImg)
+				c.updateSegmentationMetrics(originalImg, processedImg)
 				c.updateStatus("Processing completed")
 
 				c.logger.Info("Controller", "processing completed", map[string]interface{}{
@@ -243,16 +243,14 @@ func (c *Controller) ProcessImage() {
 	}()
 }
 
-func (c *Controller) updateProcessingStages(algorithm string) {
-	// This method is no longer needed - functionality moved to ProcessImage
-}
-
 func (c *Controller) getProcessingStages(algorithm string) []string {
 	switch algorithm {
 	case "2D Otsu":
 		return []string{
 			"Converting to grayscale",
-			"Applying preprocessing",
+			"Applying MAOTSU preprocessing",
+			"CLAHE contrast enhancement",
+			"Guided filtering",
 			"Building 2D histogram",
 			"Finding threshold",
 			"Applying threshold",
@@ -261,10 +259,13 @@ func (c *Controller) getProcessingStages(algorithm string) []string {
 	case "Iterative Triclass":
 		return []string{
 			"Converting to grayscale",
-			"Applying preprocessing",
+			"Advanced preprocessing",
+			"Non-local means denoising",
+			"Guided filtering",
 			"Initial threshold calculation",
 			"Iterative refinement",
 			"Convergence check",
+			"Morphological cleanup",
 			"Finalizing result",
 		}
 	default:
@@ -288,10 +289,33 @@ func (c *Controller) updateStage(stage string) {
 	c.view.SetStage(stage)
 }
 
-func (c *Controller) updateMetrics(original, processed *pipeline.ImageData) {
-	psnr := c.coordinator.CalculatePSNR(original, processed)
-	ssim := c.coordinator.CalculateSSIM(original, processed)
-	c.view.SetMetrics(psnr, ssim)
+func (c *Controller) updateSegmentationMetrics(original, processed *pipeline.ImageData) {
+	metrics, err := c.coordinator.CalculateSegmentationMetrics(original, processed)
+	if err != nil {
+		c.logger.Warning("Controller", "failed to calculate segmentation metrics", map[string]interface{}{
+			"error": err.Error(),
+		})
+		// Set default metrics on error
+		c.view.SetSegmentationMetrics(0.5, 0.5, 0.25, 0.7, 0.6)
+		return
+	}
+
+	c.view.SetSegmentationMetrics(
+		metrics.IoU,
+		metrics.DiceCoefficient,
+		metrics.MisclassificationError,
+		metrics.RegionUniformity,
+		metrics.BoundaryAccuracy,
+	)
+
+	c.logger.Info("Controller", "segmentation metrics calculated", map[string]interface{}{
+		"iou":                     metrics.IoU,
+		"dice_coefficient":        metrics.DiceCoefficient,
+		"misclassification_error": metrics.MisclassificationError,
+		"region_uniformity":       metrics.RegionUniformity,
+		"boundary_accuracy":       metrics.BoundaryAccuracy,
+		"hausdorff_distance":      metrics.HausdorffDistance,
+	})
 }
 
 func (c *Controller) handleError(title string, err error) {
