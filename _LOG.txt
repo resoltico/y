@@ -1,0 +1,35 @@
+[2:09:09 AM] % ./build.sh debug memory
+[02:09:09] Checking dependencies...
+✓ Go 1.24 detected
+✓ OpenCV found
+✓ All dependencies verified
+[02:09:09] Running with memory debugging and MatProfile
+# otsu-obliterator/internal/algorithms/otsu2d
+internal/algorithms/otsu2d/processor.go:279:8: clahe.SetClipLimit undefined (type gocv.CLAHE has no field or method SetClipLimit)
+internal/algorithms/otsu2d/processor.go:280:8: clahe.SetTilesGridSize undefined (type gocv.CLAHE has no field or method SetTilesGridSize)
+internal/algorithms/otsu2d/processor.go:701:21: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/otsu2d/processor.go:704:21: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/otsu2d/processor.go:713:33: cannot call pointer method GetDoubleAt on gocv.Mat
+internal/algorithms/otsu2d/processor.go:714:33: cannot call pointer method GetDoubleAt on gocv.Mat
+internal/algorithms/otsu2d/processor.go:715:34: cannot call pointer method GetDoubleAt on gocv.Mat
+internal/algorithms/otsu2d/processor.go:717:22: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/otsu2d/processor.go:734:22: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/otsu2d/processor.go:735:23: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/otsu2d/processor.go:735:23: too many errors
+# otsu-obliterator/internal/algorithms/triclass
+internal/algorithms/triclass/processor.go:769:22: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/triclass/processor.go:770:23: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/triclass/processor.go:771:22: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/triclass/processor.go:772:23: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/triclass/processor.go:775:22: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/triclass/processor.go:776:23: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/triclass/processor.go:777:22: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/triclass/processor.go:778:23: cannot call pointer method SetDoubleAt on gocv.Mat
+internal/algorithms/triclass/processor.go:789:35: cannot call pointer method GetDoubleAt on gocv.Mat
+internal/algorithms/triclass/processor.go:790:35: cannot call pointer method GetDoubleAt on gocv.Mat
+internal/algorithms/triclass/processor.go:790:35: too many errors
+# otsu-obliterator/internal/gui/widgets
+internal/gui/widgets/toolbar.go:172:18: t.metricsLabel.SetToolTip undefined (type *"fyne.io/fyne/v2/widget".Label has no field or method SetToolTip)
+internal/gui/widgets/toolbar.go:175:18: t.metricsLabel.SetToolTip undefined (type *"fyne.io/fyne/v2/widget".Label has no field or method SetToolTip)
+✗ Build script failed with exit code 1
+[2:09:17 AM] % 

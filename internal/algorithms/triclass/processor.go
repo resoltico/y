@@ -764,23 +764,18 @@ func (p *Processor) buildGuidedFilterIntegrals(src *safe.Mat) (*safe.Mat, *safe.
 	integralP, _ := safe.NewMat(rows+1, cols+1, gocv.MatTypeCV64FC1)
 	integralIP, _ := safe.NewMat(rows+1, cols+1, gocv.MatTypeCV64FC1)
 
-	matI := integralI.GetMat()
-	matI2 := integralI2.GetMat()
-	matP := integralP.GetMat()
-	matIP := integralIP.GetMat()
-
 	// Initialize borders
 	for i := 0; i <= rows; i++ {
-		matI.SetDoubleAt(i, 0, 0.0)
-		matI2.SetDoubleAt(i, 0, 0.0)
-		matP.SetDoubleAt(i, 0, 0.0)
-		matIP.SetDoubleAt(i, 0, 0.0)
+		integralI.GetMat().SetDoubleAt(i, 0, 0.0)
+		integralI2.GetMat().SetDoubleAt(i, 0, 0.0)
+		integralP.GetMat().SetDoubleAt(i, 0, 0.0)
+		integralIP.GetMat().SetDoubleAt(i, 0, 0.0)
 	}
 	for j := 0; j <= cols; j++ {
-		matI.SetDoubleAt(0, j, 0.0)
-		matI2.SetDoubleAt(0, j, 0.0)
-		matP.SetDoubleAt(0, j, 0.0)
-		matIP.SetDoubleAt(0, j, 0.0)
+		integralI.GetMat().SetDoubleAt(0, j, 0.0)
+		integralI2.GetMat().SetDoubleAt(0, j, 0.0)
+		integralP.GetMat().SetDoubleAt(0, j, 0.0)
+		integralIP.GetMat().SetDoubleAt(0, j, 0.0)
 	}
 
 	// Build integral images
@@ -791,25 +786,25 @@ func (p *Processor) buildGuidedFilterIntegrals(src *safe.Mat) (*safe.Mat, *safe.
 			P := I // For guided filter, guide image equals input image
 
 			// Calculate integral sums
-			prevRowI := matI.GetDoubleAt(y-1, x)
-			prevColI := matI.GetDoubleAt(y, x-1)
-			prevDiagI := matI.GetDoubleAt(y-1, x-1)
-			matI.SetDoubleAt(y, x, I+prevRowI+prevColI-prevDiagI)
+			prevRowI := integralI.GetMat().GetDoubleAt(y-1, x)
+			prevColI := integralI.GetMat().GetDoubleAt(y, x-1)
+			prevDiagI := integralI.GetMat().GetDoubleAt(y-1, x-1)
+			integralI.GetMat().SetDoubleAt(y, x, I+prevRowI+prevColI-prevDiagI)
 
-			prevRowI2 := matI2.GetDoubleAt(y-1, x)
-			prevColI2 := matI2.GetDoubleAt(y, x-1)
-			prevDiagI2 := matI2.GetDoubleAt(y-1, x-1)
-			matI2.SetDoubleAt(y, x, I*I+prevRowI2+prevColI2-prevDiagI2)
+			prevRowI2 := integralI2.GetMat().GetDoubleAt(y-1, x)
+			prevColI2 := integralI2.GetMat().GetDoubleAt(y, x-1)
+			prevDiagI2 := integralI2.GetMat().GetDoubleAt(y-1, x-1)
+			integralI2.GetMat().SetDoubleAt(y, x, I*I+prevRowI2+prevColI2-prevDiagI2)
 
-			prevRowP := matP.GetDoubleAt(y-1, x)
-			prevColP := matP.GetDoubleAt(y, x-1)
-			prevDiagP := matP.GetDoubleAt(y-1, x-1)
-			matP.SetDoubleAt(y, x, P+prevRowP+prevColP-prevDiagP)
+			prevRowP := integralP.GetMat().GetDoubleAt(y-1, x)
+			prevColP := integralP.GetMat().GetDoubleAt(y, x-1)
+			prevDiagP := integralP.GetMat().GetDoubleAt(y-1, x-1)
+			integralP.GetMat().SetDoubleAt(y, x, P+prevRowP+prevColP-prevDiagP)
 
-			prevRowIP := matIP.GetDoubleAt(y-1, x)
-			prevColIP := matIP.GetDoubleAt(y, x-1)
-			prevDiagIP := matIP.GetDoubleAt(y-1, x-1)
-			matIP.SetDoubleAt(y, x, I*P+prevRowIP+prevColIP-prevDiagIP)
+			prevRowIP := integralIP.GetMat().GetDoubleAt(y-1, x)
+			prevColIP := integralIP.GetMat().GetDoubleAt(y, x-1)
+			prevDiagIP := integralIP.GetMat().GetDoubleAt(y-1, x-1)
+			integralIP.GetMat().SetDoubleAt(y, x, I*P+prevRowIP+prevColIP-prevDiagIP)
 		}
 	}
 
@@ -817,11 +812,10 @@ func (p *Processor) buildGuidedFilterIntegrals(src *safe.Mat) (*safe.Mat, *safe.
 }
 
 func (p *Processor) getIntegralSum(integral *safe.Mat, y1, x1, y2, x2 int) float64 {
-	mat := integral.GetMat()
-	sum := mat.GetDoubleAt(y2+1, x2+1)
-	sum -= mat.GetDoubleAt(y1, x2+1)
-	sum -= mat.GetDoubleAt(y2+1, x1)
-	sum += mat.GetDoubleAt(y1, x1)
+	sum := integral.GetMat().GetDoubleAt(y2+1, x2+1)
+	sum -= integral.GetMat().GetDoubleAt(y1, x2+1)
+	sum -= integral.GetMat().GetDoubleAt(y2+1, x1)
+	sum += integral.GetMat().GetDoubleAt(y1, x1)
 	return sum
 }
 
