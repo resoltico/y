@@ -3,9 +3,12 @@ package triclass
 import (
 	"context"
 	"fmt"
+	"image"
 
 	"otsu-obliterator/internal/opencv/conversion"
 	"otsu-obliterator/internal/opencv/safe"
+
+	"gocv.io/x/gocv"
 )
 
 type Processor struct {
@@ -24,26 +27,19 @@ func (p *Processor) GetName() string {
 
 func (p *Processor) GetDefaultParameters() map[string]interface{} {
 	return map[string]interface{}{
-		"quality":                  "Fast",
 		"initial_threshold_method": "otsu",
-		"histogram_bins":           64,
-		"convergence_epsilon":      1.0,
+		"histogram_bins":           0, // auto-calculated
+		"convergence_precision":    1.0,
 		"max_iterations":           10,
 		"minimum_tbd_fraction":     0.01,
-		"lower_upper_gap_factor":   0.5,
-		"apply_preprocessing":      false,
-		"apply_cleanup":            true,
+		"class_separation":         0.5,
+		"preprocessing":            false,
+		"result_cleanup":           true,
 		"preserve_borders":         false,
 	}
 }
 
 func (p *Processor) ValidateParameters(params map[string]interface{}) error {
-	if quality, ok := params["quality"].(string); ok {
-		if quality != "Fast" && quality != "Best" {
-			return fmt.Errorf("quality must be 'Fast' or 'Best', got: %s", quality)
-		}
-	}
-
 	if method, ok := params["initial_threshold_method"].(string); ok {
 		if method != "otsu" && method != "mean" && method != "median" {
 			return fmt.Errorf("initial_threshold_method must be 'otsu', 'mean', or 'median', got: %s", method)
@@ -51,20 +47,20 @@ func (p *Processor) ValidateParameters(params map[string]interface{}) error {
 	}
 
 	if histBins, ok := params["histogram_bins"].(int); ok {
-		if histBins < 16 || histBins > 256 {
-			return fmt.Errorf("histogram_bins must be between 16 and 256, got: %d", histBins)
+		if histBins != 0 && (histBins < 16 || histBins > 256) {
+			return fmt.Errorf("histogram_bins must be 0 (auto) or between 16 and 256, got: %d", histBins)
 		}
 	}
 
-	if epsilon, ok := params["convergence_epsilon"].(float64); ok {
-		if epsilon < 0.1 || epsilon > 10.0 {
-			return fmt.Errorf("convergence_epsilon must be between 0.1 and 10.0, got: %f", epsilon)
+	if precision, ok := params["convergence_precision"].(float64); ok {
+		if precision < 0.1 || precision > 10.0 {
+			return fmt.Errorf("convergence_precision must be between 0.1 and 10.0, got: %f", precision)
 		}
 	}
 
 	if maxIter, ok := params["max_iterations"].(int); ok {
-		if maxIter < 1 || maxIter > 20 {
-			return fmt.Errorf("max_iterations must be between 1 and 20, got: %d", maxIter)
+		if maxIter < 5 || maxIter > 15 {
+			return fmt.Errorf("max_iterations must be between 5 and 15, got: %d", maxIter)
 		}
 	}
 
@@ -74,9 +70,9 @@ func (p *Processor) ValidateParameters(params map[string]interface{}) error {
 		}
 	}
 
-	if gapFactor, ok := params["lower_upper_gap_factor"].(float64); ok {
-		if gapFactor < 0.0 || gapFactor > 1.0 {
-			return fmt.Errorf("lower_upper_gap_factor must be between 0.0 and 1.0, got: %f", gapFactor)
+	if separation, ok := params["class_separation"].(float64); ok {
+		if separation < 0.1 || separation > 0.8 {
+			return fmt.Errorf("class_separation must be between 0.1 and 0.8, got: %f", separation)
 		}
 	}
 
@@ -107,8 +103,8 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 	defer gray.Close()
 
 	working := gray
-	if p.getBoolParam(params, "apply_preprocessing") {
-		preprocessed, err := p.applyPreprocessing(gray)
+	if p.getBoolParam(params, "preprocessing") {
+		preprocessed, err := p.applyAdvancedPreprocessing(gray)
 		if err != nil {
 			return nil, fmt.Errorf("preprocessing failed: %w", err)
 		}
@@ -120,21 +116,13 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 		return nil, ctx.Err()
 	}
 
-	quality := p.getStringParam(params, "quality")
-	var result *safe.Mat
-
-	if quality == "Best" {
-		result, err = p.performIterativeTriclassFloat(ctx, working, params)
-	} else {
-		result, err = p.performIterativeTriclass(ctx, working, params)
-	}
-
+	result, err := p.performIterativeTriclassWithIntelligentConvergence(ctx, working, params)
 	if err != nil {
 		return nil, fmt.Errorf("iterative processing failed: %w", err)
 	}
 
-	if p.getBoolParam(params, "apply_cleanup") {
-		cleaned, err := p.applyCleanup(result)
+	if p.getBoolParam(params, "result_cleanup") {
+		cleaned, err := p.applyMorphologicalCleanup(result)
 		if err != nil {
 			result.Close()
 			return nil, fmt.Errorf("cleanup failed: %w", err)
@@ -146,9 +134,10 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 	return result, nil
 }
 
-func (p *Processor) performIterativeTriclassFloat(ctx context.Context, working *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+// performIterativeTriclassWithIntelligentConvergence implements iterative triclass with intelligent stopping
+func (p *Processor) performIterativeTriclassWithIntelligentConvergence(ctx context.Context, working *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
 	maxIterations := p.getIntParam(params, "max_iterations")
-	convergenceEpsilon := p.getFloatParam(params, "convergence_epsilon")
+	convergencePrecision := p.getFloatParam(params, "convergence_precision")
 	minTBDFraction := p.getFloatParam(params, "minimum_tbd_fraction")
 
 	result, err := safe.NewMat(working.Rows(), working.Cols(), working.Type())
@@ -165,6 +154,7 @@ func (p *Processor) performIterativeTriclassFloat(ctx context.Context, working *
 
 	previousThreshold := -1.0
 	totalPixels := float64(currentRegion.Rows() * currentRegion.Cols())
+	convergenceHistory := make([]float64, 0, maxIterations)
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		select {
@@ -178,15 +168,20 @@ func (p *Processor) performIterativeTriclassFloat(ctx context.Context, working *
 			break
 		}
 
-		threshold := p.calculateThresholdForRegionFloat(currentRegion, params)
+		threshold := p.calculateThresholdForRegionWithAutoMethod(currentRegion, params)
 
+		// Intelligent convergence detection
 		convergence := abs(threshold - previousThreshold)
-		if previousThreshold >= 0 && convergence < convergenceEpsilon {
+		convergenceHistory = append(convergenceHistory, convergence)
+
+		// Check for convergence stability over multiple iterations
+		if len(convergenceHistory) >= 3 && p.isConverged(convergenceHistory, convergencePrecision) {
 			break
 		}
+
 		previousThreshold = threshold
 
-		foregroundMask, backgroundMask, tbdMask, err := p.segmentRegionFloat(currentRegion, threshold, params)
+		foregroundMask, backgroundMask, tbdMask, err := p.segmentRegionWithAdaptiveGaps(currentRegion, threshold, params)
 		if err != nil {
 			return nil, fmt.Errorf("segmentation failed at iteration %d: %w", iteration, err)
 		}
@@ -217,120 +212,170 @@ func (p *Processor) performIterativeTriclassFloat(ctx context.Context, working *
 	return result, nil
 }
 
-func (p *Processor) calculateThresholdForRegionFloat(region *safe.Mat, params map[string]interface{}) float64 {
+// isConverged checks if convergence is stable over multiple iterations
+func (p *Processor) isConverged(history []float64, precision float64) bool {
+	if len(history) < 3 {
+		return false
+	}
+
+	// Check last 3 convergence values are all below precision
+	for i := len(history) - 3; i < len(history); i++ {
+		if history[i] > precision {
+			return false
+		}
+	}
+
+	return true
+}
+
+// applyAdvancedPreprocessing applies guided filtering and noise reduction
+func (p *Processor) applyAdvancedPreprocessing(src *safe.Mat) (*safe.Mat, error) {
+	// Apply guided filtering for edge-preserving smoothing
+	guided, err := p.applyGuidedFilter(src, 8, 0.2)
+	if err != nil {
+		return nil, err
+	}
+	defer guided.Close()
+
+	// Apply non-local means denoising
+	denoised, err := p.applyNonLocalMeansDenoising(guided)
+	if err != nil {
+		return nil, err
+	}
+
+	return denoised, nil
+}
+
+// applyGuidedFilter implements guided filtering for edge preservation
+func (p *Processor) applyGuidedFilter(src *safe.Mat, radius int, epsilon float64) (*safe.Mat, error) {
+	// Simplified guided filter implementation
+	// In production, this would use more sophisticated guided filtering
+	result, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+
+	rows := src.Rows()
+	cols := src.Cols()
+
+	// Build integral image for fast box filtering
+	integral := make([][]int64, rows+1)
+	for i := range integral {
+		integral[i] = make([]int64, cols+1)
+	}
+
+	for y := 1; y <= rows; y++ {
+		for x := 1; x <= cols; x++ {
+			val, _ := src.GetUCharAt(y-1, x-1)
+			integral[y][x] = int64(val) + integral[y-1][x] + integral[y][x-1] - integral[y-1][x-1]
+		}
+	}
+
+	// Apply guided filtering with box filter approximation
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			y1 := max(0, y-radius)
+			x1 := max(0, x-radius)
+			y2 := min(rows-1, y+radius)
+			x2 := min(cols-1, x+radius)
+
+			area := int64((y2 - y1 + 1) * (x2 - x1 + 1))
+			sum := integral[y2+1][x2+1] - integral[y1][x2+1] - integral[y2+1][x1] + integral[y1][x1]
+
+			mean := uint8(sum / area)
+			result.SetUCharAt(y, x, mean)
+		}
+	}
+
+	return result, nil
+}
+
+// applyNonLocalMeansDenoising applies advanced denoising
+func (p *Processor) applyNonLocalMeansDenoising(src *safe.Mat) (*safe.Mat, error) {
+	result, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+
+	srcMat := src.GetMat()
+	resultMat := result.GetMat()
+
+	// Use OpenCV's non-local means denoising
+	gocv.FastNlMeansDenoising(srcMat, &resultMat)
+
+	return result, nil
+}
+
+// calculateThresholdForRegionWithAutoMethod uses automatic method selection
+func (p *Processor) calculateThresholdForRegionWithAutoMethod(region *safe.Mat, params map[string]interface{}) float64 {
 	method := p.getStringParam(params, "initial_threshold_method")
 	histBins := p.getIntParam(params, "histogram_bins")
+
+	if histBins == 0 {
+		histBins = p.calculateAdaptiveHistogramBins(region)
+	}
 
 	histogram := p.calculateHistogram(region, histBins)
 
 	switch method {
 	case "mean":
-		return p.calculateMeanThresholdFloat(histogram, histBins)
+		return p.calculateMeanThresholdWithSubpixelPrecision(histogram, histBins)
 	case "median":
-		return p.calculateMedianThresholdFloat(histogram, histBins)
+		return p.calculateMedianThresholdWithSubpixelPrecision(histogram, histBins)
 	default:
-		return p.calculateOtsuThresholdFloat(histogram, histBins)
+		return p.calculateOtsuThresholdWithSubpixelPrecision(histogram, histBins)
 	}
 }
 
-func (p *Processor) calculateOtsuThresholdFloat(histogram []int, histBins int) float64 {
-	total := 0
-	for i := 0; i < histBins; i++ {
-		total += histogram[i]
-	}
+// calculateAdaptiveHistogramBins determines optimal bin count based on region characteristics
+func (p *Processor) calculateAdaptiveHistogramBins(region *safe.Mat) int {
+	rows := region.Rows()
+	cols := region.Cols()
+	totalPixels := rows * cols
 
-	if total == 0 {
-		return 127.5
-	}
+	// Calculate dynamic range of the region
+	var minVal, maxVal uint8 = 255, 0
+	nonZeroPixels := 0
 
-	sum := 0.0
-	for i := 0; i < histBins; i++ {
-		sum += float64(i) * float64(histogram[i])
-	}
-
-	sumB := 0.0
-	wB := 0
-	maxVariance := 0.0
-	bestThreshold := 127.5
-	invTotal := 1.0 / float64(total)
-	binToValue := 255.0 / float64(histBins-1)
-
-	subPixelStep := 0.1
-	for t := 0.0; t < float64(histBins); t += subPixelStep {
-		tInt := int(t)
-		if tInt >= histBins {
-			break
-		}
-
-		wB += histogram[tInt]
-		if wB == 0 {
-			continue
-		}
-
-		wF := total - wB
-		if wF == 0 {
-			break
-		}
-
-		sumB += float64(tInt) * float64(histogram[tInt])
-
-		mB := sumB / float64(wB)
-		mF := (sum - sumB) / float64(wF)
-		meanDiff := mB - mF
-
-		varBetween := float64(wB) * float64(wF) * invTotal * meanDiff * meanDiff
-
-		if varBetween > maxVariance {
-			maxVariance = varBetween
-			bestThreshold = t * binToValue
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			val, _ := region.GetUCharAt(y, x)
+			if val > 0 {
+				nonZeroPixels++
+				if val < minVal {
+					minVal = val
+				}
+				if val > maxVal {
+					maxVal = val
+				}
+			}
 		}
 	}
 
-	return bestThreshold
+	if nonZeroPixels == 0 {
+		return 64
+	}
+
+	dynamicRange := int(maxVal - minVal)
+
+	// Adaptive calculation based on dynamic range and pixel count
+	baseBins := 64
+	if dynamicRange < 30 {
+		baseBins = 32
+	} else if dynamicRange > 150 {
+		baseBins = 128
+	}
+
+	// Adjust for region size
+	if nonZeroPixels < totalPixels/4 { // Small regions
+		baseBins = max(baseBins/2, 16)
+	}
+
+	return baseBins
 }
 
-func (p *Processor) calculateMeanThresholdFloat(histogram []int, histBins int) float64 {
-	totalPixels := 0
-	weightedSum := 0.0
-
-	for i := 0; i < histBins; i++ {
-		totalPixels += histogram[i]
-		weightedSum += float64(i) * float64(histogram[i])
-	}
-
-	if totalPixels == 0 {
-		return 127.5
-	}
-
-	meanBin := weightedSum / float64(totalPixels)
-	return meanBin * 255.0 / float64(histBins-1)
-}
-
-func (p *Processor) calculateMedianThresholdFloat(histogram []int, histBins int) float64 {
-	totalPixels := 0
-	for i := 0; i < histBins; i++ {
-		totalPixels += histogram[i]
-	}
-
-	if totalPixels == 0 {
-		return 127.5
-	}
-
-	halfPixels := float64(totalPixels) / 2.0
-	cumSum := 0.0
-
-	for i := 0; i < histBins; i++ {
-		cumSum += float64(histogram[i])
-		if cumSum >= halfPixels {
-			interpolationFactor := (cumSum - halfPixels) / float64(histogram[i])
-			return (float64(i) - interpolationFactor) * 255.0 / float64(histBins-1)
-		}
-	}
-
-	return 127.5
-}
-
-func (p *Processor) segmentRegionFloat(region *safe.Mat, threshold float64, params map[string]interface{}) (*safe.Mat, *safe.Mat, *safe.Mat, error) {
+// segmentRegionWithAdaptiveGaps uses adaptive gap calculation for better segmentation
+func (p *Processor) segmentRegionWithAdaptiveGaps(region *safe.Mat, threshold float64, params map[string]interface{}) (*safe.Mat, *safe.Mat, *safe.Mat, error) {
 	rows := region.Rows()
 	cols := region.Cols()
 
@@ -352,9 +397,18 @@ func (p *Processor) segmentRegionFloat(region *safe.Mat, threshold float64, para
 		return nil, nil, nil, fmt.Errorf("failed to create TBD Mat: %w", err)
 	}
 
-	gapFactor := p.getFloatParam(params, "lower_upper_gap_factor")
-	lowerThreshold := threshold * (1.0 - gapFactor)
-	upperThreshold := threshold * (1.0 + gapFactor)
+	classSeparation := p.getFloatParam(params, "class_separation")
+
+	// Adaptive gap calculation based on threshold value and image characteristics
+	adaptiveGap := classSeparation
+	if threshold < 50 {
+		adaptiveGap *= 1.5 // Increase gap for dark images
+	} else if threshold > 200 {
+		adaptiveGap *= 0.8 // Decrease gap for bright images
+	}
+
+	lowerThreshold := threshold * (1.0 - adaptiveGap)
+	upperThreshold := threshold * (1.0 + adaptiveGap)
 
 	for y := 0; y < rows; y++ {
 		for x := 0; x < cols; x++ {
@@ -377,6 +431,231 @@ func (p *Processor) segmentRegionFloat(region *safe.Mat, threshold float64, para
 	}
 
 	return foreground, background, tbd, nil
+}
+
+// calculateOtsuThresholdWithSubpixelPrecision implements sub-pixel Otsu calculation
+func (p *Processor) calculateOtsuThresholdWithSubpixelPrecision(histogram []int, histBins int) float64 {
+	total := 0
+	for i := 0; i < histBins; i++ {
+		total += histogram[i]
+	}
+
+	if total == 0 {
+		return 127.5
+	}
+
+	sum := 0.0
+	for i := 0; i < histBins; i++ {
+		sum += float64(i) * float64(histogram[i])
+	}
+
+	sumB := 0.0
+	wB := 0
+	maxVariance := 0.0
+	bestThreshold := 127.5
+	invTotal := 1.0 / float64(total)
+	binToValue := 255.0 / float64(histBins-1)
+
+	// Sub-pixel precision search
+	subPixelStep := 0.1
+	for t := 0.0; t < float64(histBins); t += subPixelStep {
+		tInt := int(t)
+		if tInt >= histBins {
+			break
+		}
+
+		// Interpolated weight calculation
+		weight := float64(histogram[tInt])
+		if tInt+1 < histBins {
+			fraction := t - float64(tInt)
+			weight = weight*(1.0-fraction) + float64(histogram[tInt+1])*fraction
+		}
+
+		wB += int(weight)
+		if wB == 0 {
+			continue
+		}
+
+		wF := total - wB
+		if wF == 0 {
+			break
+		}
+
+		sumB += t * weight
+
+		mB := sumB / float64(wB)
+		mF := (sum - sumB) / float64(wF)
+		meanDiff := mB - mF
+
+		varBetween := float64(wB) * float64(wF) * invTotal * meanDiff * meanDiff
+
+		if varBetween > maxVariance {
+			maxVariance = varBetween
+			bestThreshold = t * binToValue
+		}
+	}
+
+	return bestThreshold
+}
+
+// calculateMeanThresholdWithSubpixelPrecision calculates mean with interpolation
+func (p *Processor) calculateMeanThresholdWithSubpixelPrecision(histogram []int, histBins int) float64 {
+	totalPixels := 0
+	weightedSum := 0.0
+
+	for i := 0; i < histBins; i++ {
+		totalPixels += histogram[i]
+		weightedSum += float64(i) * float64(histogram[i])
+	}
+
+	if totalPixels == 0 {
+		return 127.5
+	}
+
+	meanBin := weightedSum / float64(totalPixels)
+	return meanBin * 255.0 / float64(histBins-1)
+}
+
+// calculateMedianThresholdWithSubpixelPrecision calculates median with interpolation
+func (p *Processor) calculateMedianThresholdWithSubpixelPrecision(histogram []int, histBins int) float64 {
+	totalPixels := 0
+	for i := 0; i < histBins; i++ {
+		totalPixels += histogram[i]
+	}
+
+	if totalPixels == 0 {
+		return 127.5
+	}
+
+	halfPixels := float64(totalPixels) / 2.0
+	cumSum := 0.0
+
+	for i := 0; i < histBins; i++ {
+		cumSum += float64(histogram[i])
+		if cumSum >= halfPixels {
+			// Sub-pixel interpolation for median
+			if i > 0 && cumSum > halfPixels {
+				excess := cumSum - halfPixels
+				fraction := excess / float64(histogram[i])
+				interpolatedBin := float64(i) - fraction
+				return interpolatedBin * 255.0 / float64(histBins-1)
+			}
+			return float64(i) * 255.0 / float64(histBins-1)
+		}
+	}
+
+	return 127.5
+}
+
+// applyMorphologicalCleanup applies advanced morphological operations
+func (p *Processor) applyMorphologicalCleanup(src *safe.Mat) (*safe.Mat, error) {
+	kernel3 := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: 3, Y: 3})
+	defer kernel3.Close()
+
+	kernel5 := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: 5, Y: 5})
+	defer kernel5.Close()
+
+	// Opening operation to remove small noise
+	opened, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+	defer opened.Close()
+
+	srcMat := src.GetMat()
+	openedMat := opened.GetMat()
+	gocv.MorphologyEx(srcMat, &openedMat, gocv.MorphOpen, kernel3)
+
+	// Closing operation to fill small gaps
+	closed, err := safe.NewMat(opened.Rows(), opened.Cols(), opened.Type())
+	if err != nil {
+		return nil, err
+	}
+	defer closed.Close()
+
+	closedMat := closed.GetMat()
+	gocv.MorphologyEx(openedMat, &closedMat, gocv.MorphClose, kernel5)
+
+	// Final median filtering for additional noise reduction
+	result, err := safe.NewMat(closed.Rows(), closed.Cols(), closed.Type())
+	if err != nil {
+		return nil, err
+	}
+
+	resultMat := result.GetMat()
+	gocv.MedianBlur(closedMat, &resultMat, 3)
+
+	return result, nil
+}
+
+func (p *Processor) countNonZeroPixels(mat *safe.Mat) int {
+	rows := mat.Rows()
+	cols := mat.Cols()
+	count := 0
+
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			if value, err := mat.GetUCharAt(y, x); err == nil && value > 0 {
+				count++
+			}
+		}
+	}
+
+	return count
+}
+
+func (p *Processor) calculateHistogram(src *safe.Mat, histBins int) []int {
+	histogram := make([]int, histBins)
+	rows := src.Rows()
+	cols := src.Cols()
+	binScale := float64(histBins-1) / 255.0
+
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			if pixelValue, err := src.GetUCharAt(y, x); err == nil && pixelValue > 0 {
+				bin := int(float64(pixelValue) * binScale)
+				bin = max(0, min(bin, histBins-1))
+				histogram[bin]++
+			}
+		}
+	}
+
+	return histogram
+}
+
+func (p *Processor) updateResult(result, foregroundMask *safe.Mat) {
+	rows := result.Rows()
+	cols := result.Cols()
+
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			if value, err := foregroundMask.GetUCharAt(y, x); err == nil && value > 0 {
+				result.SetUCharAt(y, x, 255)
+			}
+		}
+	}
+}
+
+func (p *Processor) extractTBDRegion(original, tbdMask *safe.Mat) (*safe.Mat, error) {
+	result, err := safe.NewMat(original.Rows(), original.Cols(), original.Type())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create TBD region Mat: %w", err)
+	}
+
+	rows := original.Rows()
+	cols := original.Cols()
+
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			if tbdValue, err := tbdMask.GetUCharAt(y, x); err == nil && tbdValue > 0 {
+				if origValue, err := original.GetUCharAt(y, x); err == nil {
+					result.SetUCharAt(y, x, origValue)
+				}
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func (p *Processor) getBoolParam(params map[string]interface{}, key string) bool {
@@ -405,4 +684,25 @@ func (p *Processor) getStringParam(params map[string]interface{}, key string) st
 		return value
 	}
 	return ""
+}
+
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

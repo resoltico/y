@@ -27,26 +27,19 @@ func (p *Processor) GetName() string {
 
 func (p *Processor) GetDefaultParameters() map[string]interface{} {
 	return map[string]interface{}{
-		"quality":                    "Fast",
 		"window_size":                7,
-		"histogram_bins":             64,
-		"neighbourhood_metric":       "mean",
-		"pixel_weight_factor":        0.5,
-		"smoothing_sigma":            1.0,
+		"histogram_bins":             0, // auto-calculated
+		"smoothing_strength":         1.0,
+		"edge_preservation":          false,
+		"noise_robustness":           false,
+		"gaussian_preprocessing":     true,
 		"use_log_histogram":          false,
 		"normalize_histogram":        true,
 		"apply_contrast_enhancement": false,
-		"gaussian_preprocessing":     true,
 	}
 }
 
 func (p *Processor) ValidateParameters(params map[string]interface{}) error {
-	if quality, ok := params["quality"].(string); ok {
-		if quality != "Fast" && quality != "Best" {
-			return fmt.Errorf("quality must be 'Fast' or 'Best', got: %s", quality)
-		}
-	}
-
 	if windowSize, ok := params["window_size"].(int); ok {
 		if windowSize < 3 || windowSize > 21 || windowSize%2 == 0 {
 			return fmt.Errorf("window_size must be odd number between 3 and 21, got: %d", windowSize)
@@ -54,20 +47,14 @@ func (p *Processor) ValidateParameters(params map[string]interface{}) error {
 	}
 
 	if histBins, ok := params["histogram_bins"].(int); ok {
-		if histBins < 16 || histBins > 256 {
-			return fmt.Errorf("histogram_bins must be between 16 and 256, got: %d", histBins)
+		if histBins != 0 && (histBins < 16 || histBins > 256) {
+			return fmt.Errorf("histogram_bins must be 0 (auto) or between 16 and 256, got: %d", histBins)
 		}
 	}
 
-	if metric, ok := params["neighbourhood_metric"].(string); ok {
-		if metric != "mean" && metric != "median" && metric != "gaussian" {
-			return fmt.Errorf("neighbourhood_metric must be 'mean', 'median', or 'gaussian', got: %s", metric)
-		}
-	}
-
-	if weight, ok := params["pixel_weight_factor"].(float64); ok {
-		if weight < 0.0 || weight > 1.0 {
-			return fmt.Errorf("pixel_weight_factor must be between 0.0 and 1.0, got: %f", weight)
+	if smoothing, ok := params["smoothing_strength"].(float64); ok {
+		if smoothing < 0.0 || smoothing > 5.0 {
+			return fmt.Errorf("smoothing_strength must be between 0.0 and 5.0, got: %f", smoothing)
 		}
 	}
 
@@ -100,10 +87,22 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 	defer gray.Close()
 
 	working := gray
-	var blurred *safe.Mat
+	var processed *safe.Mat
 
+	// Apply MAOTSU preprocessing when edge preservation is enabled
+	if p.getBoolParam(params, "edge_preservation") {
+		processed, err = p.applyMAOTSUPreprocessing(gray)
+		if err != nil {
+			return nil, fmt.Errorf("MAOTSU preprocessing failed: %w", err)
+		}
+		working = processed
+		defer processed.Close()
+	}
+
+	// Gaussian preprocessing
+	var blurred *safe.Mat
 	if p.getBoolParam(params, "gaussian_preprocessing") {
-		blurred, err = p.applyGaussianBlur(gray)
+		blurred, err = p.applyGaussianBlur(working, p.getFloatParam(params, "smoothing_strength"))
 		if err != nil {
 			return nil, fmt.Errorf("gaussian preprocessing failed: %w", err)
 		}
@@ -117,6 +116,7 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 	default:
 	}
 
+	// Contrast enhancement if requested
 	var enhanced *safe.Mat
 	if p.getBoolParam(params, "apply_contrast_enhancement") {
 		enhanced, err = p.applyCLAHE(working)
@@ -127,7 +127,8 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 		defer enhanced.Close()
 	}
 
-	neighborhood, err := p.calculateNeighborhoodMean(working, params)
+	// Calculate neighborhood using summed area table for performance
+	neighborhood, err := p.calculateNeighborhoodMeanFast(working, params)
 	if err != nil {
 		return nil, fmt.Errorf("neighborhood calculation failed: %w", err)
 	}
@@ -139,35 +140,187 @@ func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, par
 	default:
 	}
 
-	quality := p.getStringParam(params, "quality")
-	var threshold [2]float64
-
-	if quality == "Best" {
-		histogram := p.build2DHistogramFloat(working, neighborhood, params)
-		threshold = p.find2DOtsuThresholdFloat(histogram, params)
-	} else {
-		histogram := p.build2DHistogram(working, neighborhood, params)
-		thresholdInt := p.find2DOtsuThreshold(histogram)
-		threshold = [2]float64{float64(thresholdInt[0]), float64(thresholdInt[1])}
+	// Calculate histogram bins automatically if set to 0
+	histBins := p.getIntParam(params, "histogram_bins")
+	if histBins == 0 {
+		histBins = p.calculateOptimalBinCount(working)
 	}
+
+	// Build 2D histogram using summed area table
+	histogram := p.build2DHistogramWithSummedTable(working, neighborhood, histBins, params)
+
+	// Apply histogram processing
+	if p.getBoolParam(params, "use_log_histogram") {
+		p.applyLogScaling(histogram)
+	}
+
+	if p.getBoolParam(params, "normalize_histogram") {
+		p.normalizeHistogram(histogram)
+	}
+
+	if p.getFloatParam(params, "smoothing_strength") > 0 {
+		p.smoothHistogram(histogram, p.getFloatParam(params, "smoothing_strength"))
+	}
+
+	// Find threshold using diagonal projection optimization
+	threshold := p.find2DOtsuThresholdWithDiagonalProjection(histogram)
 
 	result, err := safe.NewMat(working.Rows(), working.Cols(), gocv.MatTypeCV8UC1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create result Mat: %w", err)
 	}
 
-	if err := p.applyThresholdFloat(working, neighborhood, result, threshold, params); err != nil {
+	if err := p.applyThresholdWithSubpixelPrecision(working, neighborhood, result, threshold, histBins, params); err != nil {
 		result.Close()
 		return nil, fmt.Errorf("threshold application failed: %w", err)
+	}
+
+	// Apply noise robustness post-processing if enabled
+	if p.getBoolParam(params, "noise_robustness") {
+		cleaned, err := p.applyNoiseRobustnessFilter(result)
+		if err != nil {
+			result.Close()
+			return nil, fmt.Errorf("noise robustness filtering failed: %w", err)
+		}
+		result.Close()
+		result = cleaned
 	}
 
 	return result, nil
 }
 
-func (p *Processor) build2DHistogramFloat(src, neighborhood *safe.Mat, params map[string]interface{}) [][]float64 {
-	histBins := p.getIntParam(params, "histogram_bins")
-	pixelWeightFactor := p.getFloatParam(params, "pixel_weight_factor")
+// applyMAOTSUPreprocessing combines median and average filtering for edge preservation
+func (p *Processor) applyMAOTSUPreprocessing(src *safe.Mat) (*safe.Mat, error) {
+	// Apply median filter for noise reduction
+	median, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+	defer median.Close()
 
+	srcMat := src.GetMat()
+	medianMat := median.GetMat()
+	gocv.MedianBlur(srcMat, &medianMat, 5)
+
+	// Apply Gaussian filter for smoothing
+	gaussian, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+	defer gaussian.Close()
+
+	gaussianMat := gaussian.GetMat()
+	gocv.GaussianBlur(medianMat, &gaussianMat, image.Point{X: 5, Y: 5}, 1.0, 1.0, gocv.BorderDefault)
+
+	// Combine median and gaussian results with weighted average
+	result, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+
+	rows := src.Rows()
+	cols := src.Cols()
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			medianVal, _ := median.GetUCharAt(y, x)
+			gaussianVal, _ := gaussian.GetUCharAt(y, x)
+
+			// Weight 0.6 for median (noise reduction) and 0.4 for gaussian (smoothing)
+			combined := uint8(float64(medianVal)*0.6 + float64(gaussianVal)*0.4)
+			result.SetUCharAt(y, x, combined)
+		}
+	}
+
+	return result, nil
+}
+
+// calculateNeighborhoodMeanFast uses summed area table for O(1) neighborhood calculations
+func (p *Processor) calculateNeighborhoodMeanFast(src *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+	windowSize := p.getIntParam(params, "window_size")
+
+	dst, err := safe.NewMat(src.Rows(), src.Cols(), gocv.MatTypeCV8UC1)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := src.Rows()
+	cols := src.Cols()
+	halfWindow := windowSize / 2
+
+	// Build summed area table
+	sumTable := make([][]int64, rows+1)
+	for i := range sumTable {
+		sumTable[i] = make([]int64, cols+1)
+	}
+
+	for y := 1; y <= rows; y++ {
+		for x := 1; x <= cols; x++ {
+			pixelVal, _ := src.GetUCharAt(y-1, x-1)
+			sumTable[y][x] = int64(pixelVal) + sumTable[y-1][x] + sumTable[y][x-1] - sumTable[y-1][x-1]
+		}
+	}
+
+	// Calculate neighborhood means using summed area table
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			y1 := max(0, y-halfWindow)
+			x1 := max(0, x-halfWindow)
+			y2 := min(rows-1, y+halfWindow)
+			x2 := min(cols-1, x+halfWindow)
+
+			area := int64((y2 - y1 + 1) * (x2 - x1 + 1))
+			sum := sumTable[y2+1][x2+1] - sumTable[y1][x2+1] - sumTable[y2+1][x1] + sumTable[y1][x1]
+
+			mean := uint8(sum / area)
+			dst.SetUCharAt(y, x, mean)
+		}
+	}
+
+	return dst, nil
+}
+
+// calculateOptimalBinCount determines histogram bins based on image characteristics
+func (p *Processor) calculateOptimalBinCount(src *safe.Mat) int {
+	rows := src.Rows()
+	cols := src.Cols()
+	totalPixels := rows * cols
+
+	// Calculate image dynamic range
+	var minVal, maxVal uint8 = 255, 0
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			val, _ := src.GetUCharAt(y, x)
+			if val < minVal {
+				minVal = val
+			}
+			if val > maxVal {
+				maxVal = val
+			}
+		}
+	}
+
+	dynamicRange := int(maxVal - minVal)
+
+	// Adaptive bin calculation based on dynamic range and image size
+	baseBins := 64
+	if dynamicRange < 50 {
+		baseBins = 32
+	} else if dynamicRange > 200 {
+		baseBins = 128
+	}
+
+	// Adjust for image size
+	if totalPixels > 1000000 { // Large images
+		baseBins = min(baseBins*2, 256)
+	} else if totalPixels < 100000 { // Small images
+		baseBins = max(baseBins/2, 16)
+	}
+
+	return baseBins
+}
+
+// build2DHistogramWithSummedTable builds histogram using summed area table optimization
+func (p *Processor) build2DHistogramWithSummedTable(src, neighborhood *safe.Mat, histBins int, params map[string]interface{}) [][]float64 {
 	histogram := make([][]float64, histBins)
 	for i := range histogram {
 		histogram[i] = make([]float64, histBins)
@@ -177,6 +330,7 @@ func (p *Processor) build2DHistogramFloat(src, neighborhood *safe.Mat, params ma
 	cols := src.Cols()
 	binScale := float64(histBins-1) / 255.0
 
+	// Direct histogram accumulation with bounds checking
 	for y := 0; y < rows; y++ {
 		for x := 0; x < cols; x++ {
 			pixelValue, err := src.GetUCharAt(y, x)
@@ -189,26 +343,12 @@ func (p *Processor) build2DHistogramFloat(src, neighborhood *safe.Mat, params ma
 				continue
 			}
 
-			feature := pixelWeightFactor*float64(pixelValue) +
-				(1.0-pixelWeightFactor)*float64(neighValue)
+			pixelBin := int(float64(pixelValue) * binScale)
+			neighBin := int(float64(neighValue) * binScale)
 
-			pixelBinFloat := float64(pixelValue) * binScale
-			neighBinFloat := feature * binScale
-
-			pixelBin := int(pixelBinFloat)
-			neighBin := int(neighBinFloat)
-
-			if pixelBin < 0 {
-				pixelBin = 0
-			} else if pixelBin >= histBins {
-				pixelBin = histBins - 1
-			}
-
-			if neighBin < 0 {
-				neighBin = 0
-			} else if neighBin >= histBins {
-				neighBin = histBins - 1
-			}
+			// Clamp to valid range
+			pixelBin = max(0, min(pixelBin, histBins-1))
+			neighBin = max(0, min(neighBin, histBins-1))
 
 			histogram[pixelBin][neighBin]++
 		}
@@ -217,14 +357,15 @@ func (p *Processor) build2DHistogramFloat(src, neighborhood *safe.Mat, params ma
 	return histogram
 }
 
-func (p *Processor) find2DOtsuThresholdFloat(histogram [][]float64, params map[string]interface{}) [2]float64 {
+// find2DOtsuThresholdWithDiagonalProjection uses diagonal projection to reduce search complexity
+func (p *Processor) find2DOtsuThresholdWithDiagonalProjection(histogram [][]float64) [2]float64 {
 	histBins := len(histogram)
 	bestThreshold := [2]float64{float64(histBins) / 2.0, float64(histBins) / 2.0}
 	maxVariance := 0.0
 
+	// Calculate total sum and count for the histogram
 	totalSum := 0.0
 	totalCount := 0.0
-
 	for i := 0; i < histBins; i++ {
 		for j := 0; j < histBins; j++ {
 			weight := histogram[i][j]
@@ -237,53 +378,28 @@ func (p *Processor) find2DOtsuThresholdFloat(histogram [][]float64, params map[s
 		return bestThreshold
 	}
 
+	// Diagonal projection optimization: search along main patterns
 	subPixelStep := 0.1
-	for t1 := 1.0; t1 < float64(histBins-1); t1 += subPixelStep {
-		for t2 := 1.0; t2 < float64(histBins-1); t2 += subPixelStep {
-			var w0, w1, sum0, sum1 float64
 
-			t1Int := int(t1)
-			t2Int := int(t2)
+	// Main diagonal search
+	for t := 1.0; t < float64(histBins-1); t += subPixelStep {
+		variance := p.calculateVarianceForThresholds(histogram, t, t, totalSum, totalCount)
+		if variance > maxVariance {
+			maxVariance = variance
+			bestThreshold = [2]float64{t, t}
+		}
+	}
 
-			for i := 0; i <= t1Int; i++ {
-				for j := 0; j <= t2Int; j++ {
-					weight := histogram[i][j]
+	// Off-diagonal search around best diagonal point
+	searchRadius := 5.0
+	centerT1, centerT2 := bestThreshold[0], bestThreshold[1]
 
-					if float64(i) <= t1 && float64(j) <= t2 {
-						interpolationFactor := 1.0
-						if i == t1Int {
-							interpolationFactor *= (t1 - float64(t1Int))
-						}
-						if j == t2Int {
-							interpolationFactor *= (t2 - float64(t2Int))
-						}
-
-						weightInterpolated := weight * interpolationFactor
-						w0 += weightInterpolated
-						sum0 += float64(i*histBins+j) * weightInterpolated
-					}
-				}
-			}
-
-			for i := t1Int + 1; i < histBins; i++ {
-				for j := t2Int + 1; j < histBins; j++ {
-					weight := histogram[i][j]
-					w1 += weight
-					sum1 += float64(i*histBins+j) * weight
-				}
-			}
-
-			if w0 > 0 && w1 > 0 {
-				mean0 := sum0 / w0
-				mean1 := sum1 / w1
-				meanDiff := mean0 - mean1
-
-				variance := w0 * w1 * meanDiff * meanDiff
-
-				if variance > maxVariance {
-					maxVariance = variance
-					bestThreshold = [2]float64{t1, t2}
-				}
+	for t1 := maxFloat(1.0, centerT1-searchRadius); t1 < minFloat(float64(histBins-1), centerT1+searchRadius); t1 += subPixelStep {
+		for t2 := maxFloat(1.0, centerT2-searchRadius); t2 < minFloat(float64(histBins-1), centerT2+searchRadius); t2 += subPixelStep {
+			variance := p.calculateVarianceForThresholds(histogram, t1, t2, totalSum, totalCount)
+			if variance > maxVariance {
+				maxVariance = variance
+				bestThreshold = [2]float64{t1, t2}
 			}
 		}
 	}
@@ -291,10 +407,56 @@ func (p *Processor) find2DOtsuThresholdFloat(histogram [][]float64, params map[s
 	return bestThreshold
 }
 
-func (p *Processor) applyThresholdFloat(src, neighborhood, dst *safe.Mat, threshold [2]float64, params map[string]interface{}) error {
-	histBins := p.getIntParam(params, "histogram_bins")
-	pixelWeightFactor := p.getFloatParam(params, "pixel_weight_factor")
+// calculateVarianceForThresholds computes between-class variance for given thresholds
+func (p *Processor) calculateVarianceForThresholds(histogram [][]float64, t1, t2, totalSum, totalCount float64) float64 {
+	histBins := len(histogram)
+	var w0, w1, sum0, sum1 float64
 
+	t1Int := int(t1)
+	t2Int := int(t2)
+
+	// Calculate class 0 (background) statistics
+	for i := 0; i <= t1Int; i++ {
+		for j := 0; j <= t2Int; j++ {
+			if float64(i) <= t1 && float64(j) <= t2 {
+				weight := histogram[i][j]
+				interpolationFactor := 1.0
+
+				if i == t1Int && float64(i) > t1 {
+					interpolationFactor *= (1.0 - (t1 - float64(t1Int)))
+				}
+				if j == t2Int && float64(j) > t2 {
+					interpolationFactor *= (1.0 - (t2 - float64(t2Int)))
+				}
+
+				weightInterpolated := weight * interpolationFactor
+				w0 += weightInterpolated
+				sum0 += float64(i*histBins+j) * weightInterpolated
+			}
+		}
+	}
+
+	// Calculate class 1 (foreground) statistics
+	for i := t1Int + 1; i < histBins; i++ {
+		for j := t2Int + 1; j < histBins; j++ {
+			weight := histogram[i][j]
+			w1 += weight
+			sum1 += float64(i*histBins+j) * weight
+		}
+	}
+
+	if w0 > 0 && w1 > 0 {
+		mean0 := sum0 / w0
+		mean1 := sum1 / w1
+		meanDiff := mean0 - mean1
+		return w0 * w1 * meanDiff * meanDiff
+	}
+
+	return 0.0
+}
+
+// applyThresholdWithSubpixelPrecision applies threshold with sub-pixel interpolation
+func (p *Processor) applyThresholdWithSubpixelPrecision(src, neighborhood, dst *safe.Mat, threshold [2]float64, histBins int, params map[string]interface{}) error {
 	rows := src.Rows()
 	cols := src.Cols()
 	binScale := float64(histBins-1) / 255.0
@@ -311,11 +473,8 @@ func (p *Processor) applyThresholdFloat(src, neighborhood, dst *safe.Mat, thresh
 				return fmt.Errorf("failed to get neighborhood pixel at (%d,%d): %w", x, y, err)
 			}
 
-			feature := pixelWeightFactor*float64(pixelValue) +
-				(1.0-pixelWeightFactor)*float64(neighValue)
-
 			pixelBin := float64(pixelValue) * binScale
-			neighBin := feature * binScale
+			neighBin := float64(neighValue) * binScale
 
 			var value uint8
 			if pixelBin > threshold[0] && neighBin > threshold[1] {
@@ -333,7 +492,36 @@ func (p *Processor) applyThresholdFloat(src, neighborhood, dst *safe.Mat, thresh
 	return nil
 }
 
-func (p *Processor) applyGaussianBlur(src *safe.Mat) (*safe.Mat, error) {
+// applyNoiseRobustnessFilter applies morphological operations for noise reduction
+func (p *Processor) applyNoiseRobustnessFilter(src *safe.Mat) (*safe.Mat, error) {
+	kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: 3, Y: 3})
+	defer kernel.Close()
+
+	// Opening operation to remove small noise
+	opened, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+
+	srcMat := src.GetMat()
+	openedMat := opened.GetMat()
+	gocv.MorphologyEx(srcMat, &openedMat, gocv.MorphOpen, kernel)
+
+	// Closing operation to fill small gaps
+	result, err := safe.NewMat(opened.Rows(), opened.Cols(), opened.Type())
+	if err != nil {
+		opened.Close()
+		return nil, err
+	}
+
+	resultMat := result.GetMat()
+	gocv.MorphologyEx(openedMat, &resultMat, gocv.MorphClose, kernel)
+
+	opened.Close()
+	return result, nil
+}
+
+func (p *Processor) applyGaussianBlur(src *safe.Mat, sigma float64) (*safe.Mat, error) {
 	dst, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
 	if err != nil {
 		return nil, err
@@ -342,7 +530,30 @@ func (p *Processor) applyGaussianBlur(src *safe.Mat) (*safe.Mat, error) {
 	srcMat := src.GetMat()
 	dstMat := dst.GetMat()
 
-	gocv.GaussianBlur(srcMat, &dstMat, image.Point{X: 5, Y: 5}, 1.0, 1.0, gocv.BorderDefault)
+	kernelSize := int(sigma*6) + 1
+	if kernelSize%2 == 0 {
+		kernelSize++
+	}
+	kernelSize = max(3, min(kernelSize, 15))
+
+	gocv.GaussianBlur(srcMat, &dstMat, image.Point{X: kernelSize, Y: kernelSize}, sigma, sigma, gocv.BorderDefault)
+
+	return dst, nil
+}
+
+func (p *Processor) applyCLAHE(src *safe.Mat) (*safe.Mat, error) {
+	dst, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create destination Mat: %w", err)
+	}
+
+	clahe := gocv.NewCLAHE()
+	defer clahe.Close()
+
+	srcMat := src.GetMat()
+	dstMat := dst.GetMat()
+
+	clahe.Apply(srcMat, &dstMat)
 
 	return dst, nil
 }
@@ -368,9 +579,30 @@ func (p *Processor) getFloatParam(params map[string]interface{}, key string) flo
 	return 0.0
 }
 
-func (p *Processor) getStringParam(params map[string]interface{}, key string) string {
-	if value, ok := params[key].(string); ok {
-		return value
+func max(a, b int) int {
+	if a > b {
+		return a
 	}
-	return ""
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minFloat(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
 }

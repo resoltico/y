@@ -14,32 +14,32 @@ type ParameterPanel struct {
 	parameterChangeHandler func(string, interface{})
 
 	// Reusable widgets for 2D Otsu
-	windowSizeSlider     *widget.Slider
-	windowSizeLabel      *widget.Label
-	histBinsSlider       *widget.Slider
-	histBinsLabel        *widget.Label
-	neighMetric          *widget.Select
-	pixelWeightSlider    *widget.Slider
-	pixelWeightLabel     *widget.Label
-	smoothingSigmaSlider *widget.Slider
-	smoothingSigmaLabel  *widget.Label
-	useLogCheck          *widget.Check
-	normalizeCheck       *widget.Check
-	contrastCheck        *widget.Check
+	windowSizeSlider        *widget.Slider
+	windowSizeLabel         *widget.Label
+	histBinsSlider          *widget.Slider
+	histBinsLabel           *widget.Label
+	smoothingStrengthSlider *widget.Slider
+	smoothingStrengthLabel  *widget.Label
+	edgePreservationCheck   *widget.Check
+	noiseRobustnessCheck    *widget.Check
+	gaussianPreprocessCheck *widget.Check
+	useLogCheck             *widget.Check
+	normalizeCheck          *widget.Check
+	contrastCheck           *widget.Check
 
 	// Reusable widgets for Iterative Triclass
-	initialMethod     *widget.Select
-	maxIterSlider     *widget.Slider
-	maxIterLabel      *widget.Label
-	convEpsilonSlider *widget.Slider
-	convEpsilonLabel  *widget.Label
-	minTBDSlider      *widget.Slider
-	minTBDLabel       *widget.Label
-	gapFactorSlider   *widget.Slider
-	gapFactorLabel    *widget.Label
-	preprocessCheck   *widget.Check
-	cleanupCheck      *widget.Check
-	bordersCheck      *widget.Check
+	initialMethod              *widget.Select
+	maxIterSlider              *widget.Slider
+	maxIterLabel               *widget.Label
+	convergencePrecisionSlider *widget.Slider
+	convergencePrecisionLabel  *widget.Label
+	minTBDSlider               *widget.Slider
+	minTBDLabel                *widget.Label
+	classSeparationSlider      *widget.Slider
+	classSeparationLabel       *widget.Label
+	preprocessingCheck         *widget.Check
+	cleanupCheck               *widget.Check
+	bordersCheck               *widget.Check
 
 	currentAlgorithm string
 }
@@ -64,17 +64,15 @@ func (pp *ParameterPanel) createWidgets() {
 	pp.windowSizeSlider.Step = 2
 	pp.windowSizeLabel = widget.NewLabel("Window Size: 7")
 
-	pp.histBinsSlider = widget.NewSlider(16, 256)
-	pp.histBinsLabel = widget.NewLabel("Histogram Bins: 64")
+	pp.histBinsSlider = widget.NewSlider(0, 256)
+	pp.histBinsLabel = widget.NewLabel("Histogram Bins: Auto")
 
-	pp.neighMetric = widget.NewSelect([]string{"mean", "median", "gaussian"}, nil)
+	pp.smoothingStrengthSlider = widget.NewSlider(0.0, 5.0)
+	pp.smoothingStrengthLabel = widget.NewLabel("Smoothing Strength: 1.0")
 
-	pp.pixelWeightSlider = widget.NewSlider(0.0, 1.0)
-	pp.pixelWeightLabel = widget.NewLabel("Pixel Weight: 0.50")
-
-	pp.smoothingSigmaSlider = widget.NewSlider(0.0, 5.0)
-	pp.smoothingSigmaLabel = widget.NewLabel("Smoothing Sigma: 1.0")
-
+	pp.edgePreservationCheck = widget.NewCheck("Edge Preservation (MAOTSU)", nil)
+	pp.noiseRobustnessCheck = widget.NewCheck("Noise Robustness", nil)
+	pp.gaussianPreprocessCheck = widget.NewCheck("Gaussian Preprocessing", nil)
 	pp.useLogCheck = widget.NewCheck("Use Log Histogram", nil)
 	pp.normalizeCheck = widget.NewCheck("Normalize Histogram", nil)
 	pp.contrastCheck = widget.NewCheck("Apply Contrast Enhancement", nil)
@@ -82,20 +80,20 @@ func (pp *ParameterPanel) createWidgets() {
 	// Create Iterative Triclass widgets
 	pp.initialMethod = widget.NewSelect([]string{"otsu", "mean", "median"}, nil)
 
-	pp.maxIterSlider = widget.NewSlider(1, 20)
+	pp.maxIterSlider = widget.NewSlider(5, 15)
 	pp.maxIterLabel = widget.NewLabel("Max Iterations: 10")
 
-	pp.convEpsilonSlider = widget.NewSlider(0.1, 10.0)
-	pp.convEpsilonLabel = widget.NewLabel("Convergence Epsilon: 1.0")
+	pp.convergencePrecisionSlider = widget.NewSlider(0.1, 10.0)
+	pp.convergencePrecisionLabel = widget.NewLabel("Convergence Precision: 1.0")
 
 	pp.minTBDSlider = widget.NewSlider(0.001, 0.2)
 	pp.minTBDLabel = widget.NewLabel("Min TBD Fraction: 0.010")
 
-	pp.gapFactorSlider = widget.NewSlider(0.0, 1.0)
-	pp.gapFactorLabel = widget.NewLabel("Gap Factor: 0.50")
+	pp.classSeparationSlider = widget.NewSlider(0.1, 0.8)
+	pp.classSeparationLabel = widget.NewLabel("Class Separation: 0.50")
 
-	pp.preprocessCheck = widget.NewCheck("Apply Preprocessing", nil)
-	pp.cleanupCheck = widget.NewCheck("Apply Cleanup", nil)
+	pp.preprocessingCheck = widget.NewCheck("Preprocessing", nil)
+	pp.cleanupCheck = widget.NewCheck("Result Cleanup", nil)
 	pp.bordersCheck = widget.NewCheck("Preserve Borders", nil)
 }
 
@@ -125,22 +123,29 @@ func (pp *ParameterPanel) setupEventHandlers() {
 
 	pp.histBinsSlider.OnChanged = func(value float64) {
 		intValue := int(value)
-		pp.histBinsLabel.SetText("Histogram Bins: " + strconv.Itoa(intValue))
+		if intValue == 0 {
+			pp.histBinsLabel.SetText("Histogram Bins: Auto")
+		} else {
+			pp.histBinsLabel.SetText("Histogram Bins: " + strconv.Itoa(intValue))
+		}
 		pp.parameterChangeHandler("histogram_bins", intValue)
 	}
 
-	pp.neighMetric.OnChanged = func(value string) {
-		pp.parameterChangeHandler("neighbourhood_metric", value)
+	pp.smoothingStrengthSlider.OnChanged = func(value float64) {
+		pp.smoothingStrengthLabel.SetText("Smoothing Strength: " + strconv.FormatFloat(value, 'f', 1, 64))
+		pp.parameterChangeHandler("smoothing_strength", value)
 	}
 
-	pp.pixelWeightSlider.OnChanged = func(value float64) {
-		pp.pixelWeightLabel.SetText("Pixel Weight: " + strconv.FormatFloat(value, 'f', 2, 64))
-		pp.parameterChangeHandler("pixel_weight_factor", value)
+	pp.edgePreservationCheck.OnChanged = func(checked bool) {
+		pp.parameterChangeHandler("edge_preservation", checked)
 	}
 
-	pp.smoothingSigmaSlider.OnChanged = func(value float64) {
-		pp.smoothingSigmaLabel.SetText("Smoothing Sigma: " + strconv.FormatFloat(value, 'f', 1, 64))
-		pp.parameterChangeHandler("smoothing_sigma", value)
+	pp.noiseRobustnessCheck.OnChanged = func(checked bool) {
+		pp.parameterChangeHandler("noise_robustness", checked)
+	}
+
+	pp.gaussianPreprocessCheck.OnChanged = func(checked bool) {
+		pp.parameterChangeHandler("gaussian_preprocessing", checked)
 	}
 
 	pp.useLogCheck.OnChanged = func(checked bool) {
@@ -166,9 +171,9 @@ func (pp *ParameterPanel) setupEventHandlers() {
 		pp.parameterChangeHandler("max_iterations", intValue)
 	}
 
-	pp.convEpsilonSlider.OnChanged = func(value float64) {
-		pp.convEpsilonLabel.SetText("Convergence Epsilon: " + strconv.FormatFloat(value, 'f', 1, 64))
-		pp.parameterChangeHandler("convergence_epsilon", value)
+	pp.convergencePrecisionSlider.OnChanged = func(value float64) {
+		pp.convergencePrecisionLabel.SetText("Convergence Precision: " + strconv.FormatFloat(value, 'f', 1, 64))
+		pp.parameterChangeHandler("convergence_precision", value)
 	}
 
 	pp.minTBDSlider.OnChanged = func(value float64) {
@@ -176,17 +181,17 @@ func (pp *ParameterPanel) setupEventHandlers() {
 		pp.parameterChangeHandler("minimum_tbd_fraction", value)
 	}
 
-	pp.gapFactorSlider.OnChanged = func(value float64) {
-		pp.gapFactorLabel.SetText("Gap Factor: " + strconv.FormatFloat(value, 'f', 2, 64))
-		pp.parameterChangeHandler("lower_upper_gap_factor", value)
+	pp.classSeparationSlider.OnChanged = func(value float64) {
+		pp.classSeparationLabel.SetText("Class Separation: " + strconv.FormatFloat(value, 'f', 2, 64))
+		pp.parameterChangeHandler("class_separation", value)
 	}
 
-	pp.preprocessCheck.OnChanged = func(checked bool) {
-		pp.parameterChangeHandler("apply_preprocessing", checked)
+	pp.preprocessingCheck.OnChanged = func(checked bool) {
+		pp.parameterChangeHandler("preprocessing", checked)
 	}
 
 	pp.cleanupCheck.OnChanged = func(checked bool) {
-		pp.parameterChangeHandler("apply_cleanup", checked)
+		pp.parameterChangeHandler("result_cleanup", checked)
 	}
 
 	pp.bordersCheck.OnChanged = func(checked bool) {
@@ -227,17 +232,20 @@ func (pp *ParameterPanel) updateOtsu2DValues(params map[string]interface{}) {
 	if windowSize := pp.getIntParam(params, "window_size", 7); windowSize != int(pp.windowSizeSlider.Value) {
 		pp.windowSizeSlider.SetValue(float64(windowSize))
 	}
-	if histBins := pp.getIntParam(params, "histogram_bins", 64); histBins != int(pp.histBinsSlider.Value) {
+	if histBins := pp.getIntParam(params, "histogram_bins", 0); histBins != int(pp.histBinsSlider.Value) {
 		pp.histBinsSlider.SetValue(float64(histBins))
 	}
-	if metric := pp.getStringParam(params, "neighbourhood_metric", "mean"); metric != pp.neighMetric.Selected {
-		pp.neighMetric.SetSelected(metric)
+	if smoothing := pp.getFloatParam(params, "smoothing_strength", 1.0); smoothing != pp.smoothingStrengthSlider.Value {
+		pp.smoothingStrengthSlider.SetValue(smoothing)
 	}
-	if weight := pp.getFloatParam(params, "pixel_weight_factor", 0.5); weight != pp.pixelWeightSlider.Value {
-		pp.pixelWeightSlider.SetValue(weight)
+	if edgePres := pp.getBoolParam(params, "edge_preservation", false); edgePres != pp.edgePreservationCheck.Checked {
+		pp.edgePreservationCheck.SetChecked(edgePres)
 	}
-	if sigma := pp.getFloatParam(params, "smoothing_sigma", 1.0); sigma != pp.smoothingSigmaSlider.Value {
-		pp.smoothingSigmaSlider.SetValue(sigma)
+	if noiseRob := pp.getBoolParam(params, "noise_robustness", false); noiseRob != pp.noiseRobustnessCheck.Checked {
+		pp.noiseRobustnessCheck.SetChecked(noiseRob)
+	}
+	if gaussian := pp.getBoolParam(params, "gaussian_preprocessing", true); gaussian != pp.gaussianPreprocessCheck.Checked {
+		pp.gaussianPreprocessCheck.SetChecked(gaussian)
 	}
 	if useLog := pp.getBoolParam(params, "use_log_histogram", false); useLog != pp.useLogCheck.Checked {
 		pp.useLogCheck.SetChecked(useLog)
@@ -257,19 +265,19 @@ func (pp *ParameterPanel) updateTriclassValues(params map[string]interface{}) {
 	if maxIter := pp.getIntParam(params, "max_iterations", 10); maxIter != int(pp.maxIterSlider.Value) {
 		pp.maxIterSlider.SetValue(float64(maxIter))
 	}
-	if epsilon := pp.getFloatParam(params, "convergence_epsilon", 1.0); epsilon != pp.convEpsilonSlider.Value {
-		pp.convEpsilonSlider.SetValue(epsilon)
+	if precision := pp.getFloatParam(params, "convergence_precision", 1.0); precision != pp.convergencePrecisionSlider.Value {
+		pp.convergencePrecisionSlider.SetValue(precision)
 	}
 	if minTBD := pp.getFloatParam(params, "minimum_tbd_fraction", 0.01); minTBD != pp.minTBDSlider.Value {
 		pp.minTBDSlider.SetValue(minTBD)
 	}
-	if gap := pp.getFloatParam(params, "lower_upper_gap_factor", 0.5); gap != pp.gapFactorSlider.Value {
-		pp.gapFactorSlider.SetValue(gap)
+	if separation := pp.getFloatParam(params, "class_separation", 0.5); separation != pp.classSeparationSlider.Value {
+		pp.classSeparationSlider.SetValue(separation)
 	}
-	if preprocess := pp.getBoolParam(params, "apply_preprocessing", false); preprocess != pp.preprocessCheck.Checked {
-		pp.preprocessCheck.SetChecked(preprocess)
+	if preprocess := pp.getBoolParam(params, "preprocessing", false); preprocess != pp.preprocessingCheck.Checked {
+		pp.preprocessingCheck.SetChecked(preprocess)
 	}
-	if cleanup := pp.getBoolParam(params, "apply_cleanup", true); cleanup != pp.cleanupCheck.Checked {
+	if cleanup := pp.getBoolParam(params, "result_cleanup", true); cleanup != pp.cleanupCheck.Checked {
 		pp.cleanupCheck.SetChecked(cleanup)
 	}
 	if borders := pp.getBoolParam(params, "preserve_borders", false); borders != pp.bordersCheck.Checked {
@@ -282,20 +290,21 @@ func (pp *ParameterPanel) buildOtsu2DParameters(params map[string]interface{}) {
 	pp.windowSizeSlider.SetValue(float64(windowSize))
 	pp.windowSizeLabel.SetText("Window Size: " + strconv.Itoa(windowSize))
 
-	histBins := pp.getIntParam(params, "histogram_bins", 64)
+	histBins := pp.getIntParam(params, "histogram_bins", 0)
 	pp.histBinsSlider.SetValue(float64(histBins))
-	pp.histBinsLabel.SetText("Histogram Bins: " + strconv.Itoa(histBins))
+	if histBins == 0 {
+		pp.histBinsLabel.SetText("Histogram Bins: Auto")
+	} else {
+		pp.histBinsLabel.SetText("Histogram Bins: " + strconv.Itoa(histBins))
+	}
 
-	pp.neighMetric.SetSelected(pp.getStringParam(params, "neighbourhood_metric", "mean"))
+	smoothingStrength := pp.getFloatParam(params, "smoothing_strength", 1.0)
+	pp.smoothingStrengthSlider.SetValue(smoothingStrength)
+	pp.smoothingStrengthLabel.SetText("Smoothing Strength: " + strconv.FormatFloat(smoothingStrength, 'f', 1, 64))
 
-	pixelWeight := pp.getFloatParam(params, "pixel_weight_factor", 0.5)
-	pp.pixelWeightSlider.SetValue(pixelWeight)
-	pp.pixelWeightLabel.SetText("Pixel Weight: " + strconv.FormatFloat(pixelWeight, 'f', 2, 64))
-
-	smoothingSigma := pp.getFloatParam(params, "smoothing_sigma", 1.0)
-	pp.smoothingSigmaSlider.SetValue(smoothingSigma)
-	pp.smoothingSigmaLabel.SetText("Smoothing Sigma: " + strconv.FormatFloat(smoothingSigma, 'f', 1, 64))
-
+	pp.edgePreservationCheck.SetChecked(pp.getBoolParam(params, "edge_preservation", false))
+	pp.noiseRobustnessCheck.SetChecked(pp.getBoolParam(params, "noise_robustness", false))
+	pp.gaussianPreprocessCheck.SetChecked(pp.getBoolParam(params, "gaussian_preprocessing", true))
 	pp.useLogCheck.SetChecked(pp.getBoolParam(params, "use_log_histogram", false))
 	pp.normalizeCheck.SetChecked(pp.getBoolParam(params, "normalize_histogram", true))
 	pp.contrastCheck.SetChecked(pp.getBoolParam(params, "apply_contrast_enhancement", false))
@@ -304,13 +313,11 @@ func (pp *ParameterPanel) buildOtsu2DParameters(params map[string]interface{}) {
 		container.NewHBox(
 			container.NewVBox(pp.windowSizeLabel, pp.windowSizeSlider),
 			container.NewVBox(pp.histBinsLabel, pp.histBinsSlider),
-			container.NewVBox(widget.NewLabel("Neighbourhood Metric"), pp.neighMetric),
+			container.NewVBox(pp.smoothingStrengthLabel, pp.smoothingStrengthSlider),
 		),
-		container.NewHBox(
-			container.NewVBox(pp.pixelWeightLabel, pp.pixelWeightSlider),
-			container.NewVBox(pp.smoothingSigmaLabel, pp.smoothingSigmaSlider),
-		),
-		container.NewHBox(pp.useLogCheck, pp.normalizeCheck, pp.contrastCheck),
+		container.NewHBox(pp.edgePreservationCheck, pp.noiseRobustnessCheck),
+		container.NewHBox(pp.gaussianPreprocessCheck, pp.useLogCheck),
+		container.NewHBox(pp.normalizeCheck, pp.contrastCheck),
 	))
 }
 
@@ -321,33 +328,33 @@ func (pp *ParameterPanel) buildTriclassParameters(params map[string]interface{})
 	pp.maxIterSlider.SetValue(float64(maxIter))
 	pp.maxIterLabel.SetText("Max Iterations: " + strconv.Itoa(maxIter))
 
-	convEpsilon := pp.getFloatParam(params, "convergence_epsilon", 1.0)
-	pp.convEpsilonSlider.SetValue(convEpsilon)
-	pp.convEpsilonLabel.SetText("Convergence Epsilon: " + strconv.FormatFloat(convEpsilon, 'f', 1, 64))
+	convergencePrecision := pp.getFloatParam(params, "convergence_precision", 1.0)
+	pp.convergencePrecisionSlider.SetValue(convergencePrecision)
+	pp.convergencePrecisionLabel.SetText("Convergence Precision: " + strconv.FormatFloat(convergencePrecision, 'f', 1, 64))
 
 	minTBD := pp.getFloatParam(params, "minimum_tbd_fraction", 0.01)
 	pp.minTBDSlider.SetValue(minTBD)
 	pp.minTBDLabel.SetText("Min TBD Fraction: " + strconv.FormatFloat(minTBD, 'f', 3, 64))
 
-	gapFactor := pp.getFloatParam(params, "lower_upper_gap_factor", 0.5)
-	pp.gapFactorSlider.SetValue(gapFactor)
-	pp.gapFactorLabel.SetText("Gap Factor: " + strconv.FormatFloat(gapFactor, 'f', 2, 64))
+	classSeparation := pp.getFloatParam(params, "class_separation", 0.5)
+	pp.classSeparationSlider.SetValue(classSeparation)
+	pp.classSeparationLabel.SetText("Class Separation: " + strconv.FormatFloat(classSeparation, 'f', 2, 64))
 
-	pp.preprocessCheck.SetChecked(pp.getBoolParam(params, "apply_preprocessing", false))
-	pp.cleanupCheck.SetChecked(pp.getBoolParam(params, "apply_cleanup", true))
+	pp.preprocessingCheck.SetChecked(pp.getBoolParam(params, "preprocessing", false))
+	pp.cleanupCheck.SetChecked(pp.getBoolParam(params, "result_cleanup", true))
 	pp.bordersCheck.SetChecked(pp.getBoolParam(params, "preserve_borders", false))
 
 	pp.parametersContent.Add(container.NewVBox(
 		container.NewHBox(
 			container.NewVBox(widget.NewLabel("Initial Method"), pp.initialMethod),
 			container.NewVBox(pp.maxIterLabel, pp.maxIterSlider),
-			container.NewVBox(pp.convEpsilonLabel, pp.convEpsilonSlider),
+			container.NewVBox(pp.convergencePrecisionLabel, pp.convergencePrecisionSlider),
 		),
 		container.NewHBox(
 			container.NewVBox(pp.minTBDLabel, pp.minTBDSlider),
-			container.NewVBox(pp.gapFactorLabel, pp.gapFactorSlider),
+			container.NewVBox(pp.classSeparationLabel, pp.classSeparationSlider),
 		),
-		container.NewHBox(pp.preprocessCheck, pp.cleanupCheck, pp.bordersCheck),
+		container.NewHBox(pp.preprocessingCheck, pp.cleanupCheck, pp.bordersCheck),
 	))
 }
 

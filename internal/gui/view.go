@@ -61,7 +61,6 @@ func (v *View) setupEventHandlers() {
 	v.toolbar.SetSaveHandler(v.controller.SaveImage)
 	v.toolbar.SetProcessHandler(v.controller.ProcessImage)
 	v.toolbar.SetAlgorithmChangeHandler(v.controller.ChangeAlgorithm)
-	v.toolbar.SetQualityChangeHandler(v.controller.ChangeQuality)
 
 	v.parameterPanel.SetParameterChangeHandler(v.controller.UpdateParameter)
 }
@@ -108,12 +107,12 @@ func (v *View) SetStatus(status string) {
 	v.toolbar.SetStatus(status)
 }
 
-func (v *View) SetProgress(progress float64) {
-	if progress > 0 && progress < 1 {
-		v.toolbar.SetProgress(fmt.Sprintf("[%.0f%%]", progress*100))
-	} else {
-		v.toolbar.SetProgress("")
-	}
+func (v *View) SetProgress(progress string) {
+	// Progress is now handled through status messages
+}
+
+func (v *View) SetStage(stage string) {
+	// Stages are now handled through status messages
 }
 
 func (v *View) SetMetrics(psnr, ssim float64) {

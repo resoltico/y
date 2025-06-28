@@ -2,60 +2,7 @@ package otsu2d
 
 import (
 	"math"
-
-	"otsu-obliterator/internal/opencv/safe"
 )
-
-func (p *Processor) build2DHistogram(src, neighborhood *safe.Mat, params map[string]interface{}) [][]float64 {
-	histBins := p.getIntParam(params, "histogram_bins")
-	pixelWeightFactor := p.getFloatParam(params, "pixel_weight_factor")
-
-	histogram := make([][]float64, histBins)
-	for i := range histogram {
-		histogram[i] = make([]float64, histBins)
-	}
-
-	rows := src.Rows()
-	cols := src.Cols()
-	binScale := float64(histBins-1) / 255.0
-
-	for y := 0; y < rows; y++ {
-		for x := 0; x < cols; x++ {
-			pixelValue, err := src.GetUCharAt(y, x)
-			if err != nil {
-				continue
-			}
-
-			neighValue, err := neighborhood.GetUCharAt(y, x)
-			if err != nil {
-				continue
-			}
-
-			feature := pixelWeightFactor*float64(pixelValue) +
-				(1.0-pixelWeightFactor)*float64(neighValue)
-
-			pixelBin := int(float64(pixelValue) * binScale)
-			neighBin := int(feature * binScale)
-
-			// Clamp to valid range
-			if pixelBin < 0 {
-				pixelBin = 0
-			} else if pixelBin >= histBins {
-				pixelBin = histBins - 1
-			}
-
-			if neighBin < 0 {
-				neighBin = 0
-			} else if neighBin >= histBins {
-				neighBin = histBins - 1
-			}
-
-			histogram[pixelBin][neighBin]++
-		}
-	}
-
-	return histogram
-}
 
 func (p *Processor) smoothHistogram(histogram [][]float64, sigma float64) {
 	if sigma <= 0.0 {

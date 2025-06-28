@@ -68,6 +68,7 @@ func (c *Controller) LoadImage() {
 
 		fyne.Do(func() {
 			c.updateStatus("Loading image...")
+			c.updateStage("Reading file data...")
 		})
 
 		go func() {
@@ -80,12 +81,14 @@ func (c *Controller) LoadImage() {
 				if loadErr != nil {
 					c.handleError("Image load error", loadErr)
 					c.updateStatus("Ready")
+					c.updateStage("")
 					return
 				}
 
 				c.view.SetPreviewImage(nil)
 				c.view.SetOriginalImage(imageData.Image)
 				c.updateStatus("Image loaded")
+				c.updateStage("")
 
 				c.view.GetMainContainer().Refresh()
 
@@ -146,24 +149,6 @@ func (c *Controller) ChangeAlgorithm(algorithm string) {
 	})
 }
 
-func (c *Controller) ChangeQuality(quality string) {
-	c.mu.Lock()
-	algorithm := c.currentAlgorithm
-	c.currentParameters["quality"] = quality
-	c.mu.Unlock()
-
-	err := c.algorithmManager.SetParameter(algorithm, "quality", quality)
-	if err != nil {
-		c.handleError("Quality change error", err)
-		return
-	}
-
-	c.logger.Info("Controller", "quality changed", map[string]interface{}{
-		"algorithm": algorithm,
-		"quality":   quality,
-	})
-}
-
 func (c *Controller) UpdateParameter(name string, value interface{}) {
 	c.mu.Lock()
 	algorithm := c.currentAlgorithm
@@ -190,11 +175,10 @@ func (c *Controller) ProcessImage() {
 
 	c.setProcessing(true)
 	fyne.Do(func() {
-		c.updateStatus("Processing image...")
-		c.view.SetProgress(0.1)
+		c.updateStatus("Initializing...")
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	c.mu.Lock()
 	c.processCtx = ctx
 	c.processCancel = cancel
@@ -204,7 +188,7 @@ func (c *Controller) ProcessImage() {
 		defer func() {
 			c.setProcessing(false)
 			fyne.Do(func() {
-				c.view.SetProgress(0.0)
+				c.updateStatus("Ready")
 			})
 			cancel()
 		}()
@@ -212,8 +196,26 @@ func (c *Controller) ProcessImage() {
 		algorithm := c.getCurrentAlgorithm()
 		params := c.getCurrentParameters()
 
+		stages := c.getProcessingStages(algorithm)
+		stageCount := len(stages)
+
+		for i, stage := range stages {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			fyne.Do(func() {
+				stageProgress := fmt.Sprintf("Stage %d/%d: %s", i+1, stageCount, stage)
+				c.updateStatus(stageProgress)
+			})
+
+			time.Sleep(300 * time.Millisecond)
+		}
+
 		start := time.Now()
-		processedImg, err := c.coordinator.ProcessImage(algorithm, params)
+		processedImg, err := c.coordinator.ProcessImageWithContext(ctx, algorithm, params)
 		processingTime := time.Since(start)
 
 		fyne.Do(func() {
@@ -241,6 +243,35 @@ func (c *Controller) ProcessImage() {
 	}()
 }
 
+func (c *Controller) updateProcessingStages(algorithm string) {
+	// This method is no longer needed - functionality moved to ProcessImage
+}
+
+func (c *Controller) getProcessingStages(algorithm string) []string {
+	switch algorithm {
+	case "2D Otsu":
+		return []string{
+			"Converting to grayscale",
+			"Applying preprocessing",
+			"Building 2D histogram",
+			"Finding threshold",
+			"Applying threshold",
+			"Finalizing result",
+		}
+	case "Iterative Triclass":
+		return []string{
+			"Converting to grayscale",
+			"Applying preprocessing",
+			"Initial threshold calculation",
+			"Iterative refinement",
+			"Convergence check",
+			"Finalizing result",
+		}
+	default:
+		return []string{"Processing"}
+	}
+}
+
 func (c *Controller) CancelProcessing() {
 	c.mu.Lock()
 	if c.processCancel != nil {
@@ -251,6 +282,10 @@ func (c *Controller) CancelProcessing() {
 
 func (c *Controller) updateStatus(status string) {
 	c.view.SetStatus(status)
+}
+
+func (c *Controller) updateStage(stage string) {
+	c.view.SetStage(stage)
 }
 
 func (c *Controller) updateMetrics(original, processed *pipeline.ImageData) {
@@ -328,6 +363,7 @@ func (c *Controller) showFormatSelectionDialog(writer fyne.URIWriteCloser, proce
 func (c *Controller) saveImageWithFormat(imagePath string, processedImg *pipeline.ImageData, format string) {
 	fyne.Do(func() {
 		c.updateStatus("Saving image...")
+		c.updateStage("Writing file...")
 	})
 
 	go func() {
@@ -342,6 +378,7 @@ func (c *Controller) saveImageWithFormat(imagePath string, processedImg *pipelin
 		if err != nil {
 			fyne.Do(func() {
 				c.handleError("File create error", err)
+				c.updateStage("")
 			})
 			return
 		}
@@ -359,6 +396,7 @@ func (c *Controller) saveImageWithFormat(imagePath string, processedImg *pipelin
 					"format": format,
 				})
 			}
+			c.updateStage("")
 		})
 	}()
 }
@@ -366,6 +404,7 @@ func (c *Controller) saveImageWithFormat(imagePath string, processedImg *pipelin
 func (c *Controller) saveImageWithWriter(writer fyne.URIWriteCloser, processedImg *pipeline.ImageData) {
 	fyne.Do(func() {
 		c.updateStatus("Saving image...")
+		c.updateStage("Writing file...")
 	})
 
 	go func() {
@@ -384,6 +423,7 @@ func (c *Controller) saveImageWithWriter(writer fyne.URIWriteCloser, processedIm
 					"save_time": time.Since(start),
 				})
 			}
+			c.updateStage("")
 		})
 	}()
 }

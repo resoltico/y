@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"fmt"
 	"otsu-obliterator/internal/logger"
 	"otsu-obliterator/internal/pipeline"
 
@@ -91,7 +92,8 @@ func (m *Manager) UpdateStatus(status string) {
 
 func (m *Manager) UpdateProgress(progress float64) {
 	fyne.Do(func() {
-		m.view.SetProgress(progress)
+		progressStr := fmt.Sprintf("[%.0f%%]", progress*100)
+		m.view.SetProgress(progressStr)
 	})
 }
 

@@ -15,17 +15,14 @@ type Toolbar struct {
 	loadButton      *widget.Button
 	saveButton      *widget.Button
 	algorithmSelect *widget.Select
-	qualitySelect   *widget.Select
 	processButton   *widget.Button
 	statusLabel     *widget.Label
-	progressLabel   *widget.Label
 	metricsLabel    *widget.Label
 
 	loadHandler            func()
 	saveHandler            func()
 	processHandler         func()
 	algorithmChangeHandler func(string)
-	qualityChangeHandler   func(string)
 }
 
 func NewToolbar() *Toolbar {
@@ -51,14 +48,7 @@ func (t *Toolbar) createComponents() {
 	)
 	t.algorithmSelect.SetSelected("2D Otsu")
 
-	t.qualitySelect = widget.NewSelect(
-		[]string{"Fast", "Best"},
-		t.onQualityChanged,
-	)
-	t.qualitySelect.SetSelected("Fast")
-
 	t.statusLabel = widget.NewLabel("Ready")
-	t.progressLabel = widget.NewLabel("")
 	t.metricsLabel = widget.NewLabel("PSNR: -- | SSIM: --")
 }
 
@@ -75,11 +65,6 @@ func (t *Toolbar) buildLayout() {
 		t.algorithmSelect,
 	)
 
-	qualityGroup := container.NewVBox(
-		widget.NewLabel("Quality"),
-		t.qualitySelect,
-	)
-
 	processGroup := container.NewVBox(
 		widget.NewLabel("Action"),
 		t.processButton,
@@ -88,12 +73,10 @@ func (t *Toolbar) buildLayout() {
 	centerSection := container.NewHBox(
 		algorithmGroup,
 		widget.NewSeparator(),
-		qualityGroup,
-		widget.NewSeparator(),
 		processGroup,
 	)
 
-	statusSection := container.NewHBox(t.statusLabel, t.progressLabel)
+	statusSection := container.NewHBox(t.statusLabel)
 	rightSection := container.NewHBox(t.metricsLabel)
 
 	content := container.NewBorder(
@@ -135,12 +118,6 @@ func (t *Toolbar) onAlgorithmChanged(algorithm string) {
 	}
 }
 
-func (t *Toolbar) onQualityChanged(quality string) {
-	if t.qualityChangeHandler != nil {
-		t.qualityChangeHandler(quality)
-	}
-}
-
 func (t *Toolbar) GetContainer() *fyne.Container {
 	return t.container
 }
@@ -161,16 +138,16 @@ func (t *Toolbar) SetAlgorithmChangeHandler(handler func(string)) {
 	t.algorithmChangeHandler = handler
 }
 
-func (t *Toolbar) SetQualityChangeHandler(handler func(string)) {
-	t.qualityChangeHandler = handler
-}
-
 func (t *Toolbar) SetStatus(status string) {
 	t.statusLabel.SetText(status)
 }
 
 func (t *Toolbar) SetProgress(progress string) {
-	t.progressLabel.SetText(progress)
+	// Progress display removed - handled through status messages
+}
+
+func (t *Toolbar) SetStage(stage string) {
+	// Stage display removed - handled through status messages
 }
 
 func (t *Toolbar) SetMetrics(psnr, ssim float64) {
