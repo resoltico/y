@@ -17,8 +17,8 @@ type MemoryTracker interface {
 
 type Mat struct {
 	mat        gocv.Mat
-	isValid    int32
-	refCount   int32
+	isValid    atomic.Bool
+	refCount   atomic.Int64
 	mu         sync.RWMutex
 	id         uint64
 	memTracker MemoryTracker
@@ -26,7 +26,7 @@ type Mat struct {
 }
 
 var (
-	nextMatID uint64
+	nextMatID atomic.Uint64
 	matPool   = sync.Pool{
 		New: func() interface{} {
 			return &Mat{}
@@ -52,12 +52,12 @@ func NewMatWithTracker(rows, cols int, matType gocv.MatType, memTracker MemoryTr
 	safeMat := matPool.Get().(*Mat)
 	*safeMat = Mat{
 		mat:        mat,
-		isValid:    1,
-		refCount:   1,
-		id:         atomic.AddUint64(&nextMatID, 1),
+		id:         nextMatID.Add(1),
 		memTracker: memTracker,
 		tag:        tag,
 	}
+	safeMat.isValid.Store(true)
+	safeMat.refCount.Store(1)
 
 	if memTracker != nil {
 		size := int64(rows * cols * getMatTypeSize(matType))
@@ -87,12 +87,12 @@ func NewMatFromMatWithTracker(srcMat gocv.Mat, memTracker MemoryTracker, tag str
 	safeMat := matPool.Get().(*Mat)
 	*safeMat = Mat{
 		mat:        clonedMat,
-		isValid:    1,
-		refCount:   1,
-		id:         atomic.AddUint64(&nextMatID, 1),
+		id:         nextMatID.Add(1),
 		memTracker: memTracker,
 		tag:        tag,
 	}
+	safeMat.isValid.Store(true)
+	safeMat.refCount.Store(1)
 
 	if memTracker != nil {
 		size := int64(srcMat.Rows() * srcMat.Cols() * getMatTypeSize(srcMat.Type()))
@@ -105,7 +105,7 @@ func NewMatFromMatWithTracker(srcMat gocv.Mat, memTracker MemoryTracker, tag str
 }
 
 func (sm *Mat) IsValid() bool {
-	return atomic.LoadInt32(&sm.isValid) == 1
+	return sm.isValid.Load()
 }
 
 func (sm *Mat) Empty() bool {
@@ -242,6 +242,29 @@ func (sm *Mat) SetUCharAt3(row, col, channel int, value uint8) error {
 	return nil
 }
 
+func (sm *Mat) GetDoubleAt(row, col int) (float64, error) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	if err := sm.validateCoordinates(row, col); err != nil {
+		return 0, err
+	}
+
+	return sm.mat.GetDoubleAt(row, col), nil
+}
+
+func (sm *Mat) SetDoubleAt(row, col int, value float64) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if err := sm.validateCoordinates(row, col); err != nil {
+		return err
+	}
+
+	sm.mat.SetDoubleAt(row, col, value)
+	return nil
+}
+
 func (sm *Mat) GetMat() gocv.Mat {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -253,11 +276,11 @@ func (sm *Mat) ID() uint64 {
 }
 
 func (sm *Mat) AddRef() {
-	atomic.AddInt32(&sm.refCount, 1)
+	sm.refCount.Add(1)
 }
 
 func (sm *Mat) Release() {
-	if atomic.AddInt32(&sm.refCount, -1) == 0 {
+	if sm.refCount.Add(-1) == 0 {
 		sm.Close()
 	}
 }
@@ -270,15 +293,15 @@ func (sm *Mat) Reset() {
 		sm.mat.Close()
 	}
 	sm.mat = gocv.Mat{}
-	atomic.StoreInt32(&sm.isValid, 0)
-	atomic.StoreInt32(&sm.refCount, 0)
+	sm.isValid.Store(false)
+	sm.refCount.Store(0)
 	sm.memTracker = nil
 	sm.tag = ""
 	sm.id = 0
 }
 
 func (sm *Mat) Close() {
-	if !atomic.CompareAndSwapInt32(&sm.isValid, 1, 0) {
+	if !sm.isValid.CompareAndSwap(true, false) {
 		return
 	}
 
@@ -298,14 +321,14 @@ func (sm *Mat) Close() {
 	sm.mat = gocv.Mat{}
 	sm.memTracker = nil
 	sm.tag = ""
-	sm.refCount = 0
+	sm.refCount.Store(0)
 	sm.id = 0
 
 	matPool.Put(sm)
 }
 
 func (sm *Mat) finalize() {
-	if atomic.LoadInt32(&sm.isValid) == 1 {
+	if sm.isValid.Load() {
 		sm.Close()
 	}
 }
@@ -433,6 +456,12 @@ func getMatTypeSize(matType gocv.MatType) int {
 		return 12
 	case gocv.MatTypeCV32FC4:
 		return 16
+	case gocv.MatTypeCV64FC1:
+		return 8
+	case gocv.MatTypeCV64FC3:
+		return 24
+	case gocv.MatTypeCV64FC4:
+		return 32
 	default:
 		return 1
 	}

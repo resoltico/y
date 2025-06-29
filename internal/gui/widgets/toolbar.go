@@ -165,13 +165,8 @@ func (t *Toolbar) SetSegmentationMetrics(iou, dice, misclassError, uniformity, b
 	if iou >= 0 && dice >= 0 {
 		// Primary metrics in main display
 		t.SetMetrics(iou, dice, misclassError)
-
-		// Additional context in tooltip or extended display
-		tooltip := fmt.Sprintf("IoU: %.3f\nDice Coefficient: %.3f\nMisclassification Error: %.3f\nRegion Uniformity: %.3f\nBoundary Accuracy: %.3f",
-			iou, dice, misclassError, uniformity, boundaryAccuracy)
-		t.metricsLabel.SetToolTip(tooltip)
+		// Note: Tooltip functionality removed as requested
 	} else {
 		t.metricsLabel.SetText("IoU: -- | Dice: -- | Error: --")
-		t.metricsLabel.SetToolTip("")
 	}
 }
