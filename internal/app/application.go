@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"otsu-obliterator/internal/gui"
-	"otsu-obliterator/internal/gui/widgets"
 	"otsu-obliterator/internal/logger"
 	"otsu-obliterator/internal/opencv/memory"
 	"otsu-obliterator/internal/pipeline"
@@ -21,7 +20,6 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
-	"github.com/rs/zerolog"
 )
 
 const (
@@ -30,93 +28,89 @@ const (
 	AppVersion = "1.0.0"
 )
 
-type shutdownHandler interface {
-	Shutdown()
-}
-
 type Application struct {
 	fyneApp       fyne.App
 	window        fyne.Window
-	guiManager    *gui.Manager
-	coordinator   pipeline.ProcessingCoordinator
+	controller    *gui.Controller
+	coordinator   *pipeline.Coordinator
 	memoryManager *memory.Manager
 	logger        logger.Logger
-	shutdownables []shutdownHandler
 	ctx           context.Context
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 	shutdown      chan struct{}
-	menuSetup     bool
 }
 
-func NewApplication() (*Application, error) {
+func NewApplication(ctx context.Context) (*Application, error) {
 	app.SetMetadata(fyne.AppMetadata{
 		ID:      AppID,
 		Name:    AppName,
 		Version: AppVersion,
-		Build:   1,
 	})
 
 	fyneApp := app.NewWithID(AppID)
 	window := fyneApp.NewWindow(AppName)
 
-	windowSize := calculateMinimumWindowSize()
+	// Calculate responsive window size
+	windowSize := calculateWindowSize()
 	window.Resize(windowSize)
-	window.SetFixedSize(false)
-	window.SetPadded(false)
 	window.CenterOnScreen()
-	window.SetMaster()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	logLevel := getLogLevel()
-	log := logger.NewConsoleLogger(logLevel)
+	appCtx, cancel := context.WithCancel(ctx)
 
-	log.Info("Application", "starting application", map[string]interface{}{
-		"version":       AppVersion,
-		"window_width":  windowSize.Width,
-		"window_height": windowSize.Height,
-		"log_level":     logLevel.String(),
+	log := logger.NewStructuredLogger(determineLogLevel())
+
+	log.Info("Application starting", map[string]interface{}{
+		"version":     AppVersion,
+		"window_size": fmt.Sprintf("%.0fx%.0f", windowSize.Width, windowSize.Height),
+		"go_version":  runtime.Version(),
+		"num_cpu":     runtime.NumCPU(),
 	})
 
-	memoryManager := memory.NewManager(log)
-	coordinator := pipeline.NewCoordinator(memoryManager, log)
+	memManager := memory.NewManager(log)
+	coordinator := pipeline.NewCoordinator(memManager, log)
+	controller := gui.NewController(coordinator, log)
 
-	guiManager, err := gui.NewManager(window, log)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-
-	guiManager.SetProcessingCoordinator(coordinator)
-
-	log.Info("Application", "creating application struct", nil)
 	application := &Application{
 		fyneApp:       fyneApp,
 		window:        window,
-		guiManager:    guiManager,
+		controller:    controller,
 		coordinator:   coordinator,
-		memoryManager: memoryManager,
+		memoryManager: memManager,
 		logger:        log,
-		ctx:           ctx,
+		ctx:           appCtx,
 		cancel:        cancel,
 		shutdown:      make(chan struct{}),
-		shutdownables: []shutdownHandler{
-			memoryManager,
-			coordinator,
-			guiManager,
-		},
 	}
 
 	application.setupSignalHandling()
-	log.Info("Application", "initialization complete", nil)
+	application.setupWindow()
+
+	log.Info("Application initialized", nil)
 	return application, nil
 }
 
-func (a *Application) setupMenu() {
+func (a *Application) setupWindow() {
+	a.window.SetFixedSize(false)
+	a.window.SetPadded(true)
+
+	// Setup content using Fyne v2.6 patterns
+	content := a.controller.CreateMainContent()
+	a.window.SetContent(content)
+
+	a.window.SetCloseIntercept(func() {
+		a.logger.Info("Shutdown requested via window close", nil)
+		a.initiateShutdown()
+		a.window.Close()
+	})
+}
+
+func (a *Application) SetupMenus() {
 	aboutAction := func() {
-		a.logger.Info("About", "menu action triggered", nil)
+		a.logger.Info("About dialog requested", nil)
+		// Use fyne.Do for UI thread safety in Fyne v2.6+
 		fyne.Do(func() {
-			a.showAbout()
+			a.showAboutDialog()
 		})
 	}
 
@@ -128,69 +122,55 @@ func (a *Application) setupMenu() {
 	mainMenu := fyne.NewMainMenu(fileMenu, helpMenu)
 	a.window.SetMainMenu(mainMenu)
 
-	a.logger.Info("Application", "menu setup completed", map[string]interface{}{
+	a.logger.Info("Menu system configured", map[string]interface{}{
 		"menus": []string{"File", "Help"},
 	})
 }
 
-func (a *Application) showAbout() {
+func (a *Application) showAboutDialog() {
 	metadata := a.fyneApp.Metadata()
 
-	a.logger.Info("About", "metadata debug", map[string]interface{}{
-		"name":    metadata.Name,
-		"version": metadata.Version,
-		"build":   metadata.Build,
-		"id":      metadata.ID,
-	})
-
-	name := metadata.Name
-	if name == "" {
-		name = AppName
-		a.logger.Info("About", "using fallback name", map[string]interface{}{"name": name})
-	}
-
-	version := metadata.Version
-	if version == "" {
-		version = AppVersion
-		a.logger.Info("About", "using fallback version", map[string]interface{}{"version": version})
-	}
-
-	build := fmt.Sprintf("%d", metadata.Build)
-	if metadata.Build == 0 {
-		build = "1"
-		a.logger.Info("About", "using fallback build", map[string]interface{}{"build": build})
-	}
-
 	aboutContent := container.NewVBox(
-		widget.NewLabel(name),
-		widget.NewLabel(fmt.Sprintf("Version: %s", version)),
-		widget.NewLabel(fmt.Sprintf("Build: %s", build)),
+		widget.NewLabel(metadata.Name),
+		widget.NewLabel(fmt.Sprintf("Version: %s", metadata.Version)),
 		widget.NewLabel(""),
-		widget.NewLabel("Author: Ervins Strauhmanis"),
-		widget.NewLabel("License: MIT"),
-		widget.NewLabel("Year: 2025"),
+		widget.NewLabel("Modern Go image processing with 2D Otsu thresholding"),
 		widget.NewLabel(""),
-		widget.NewLabel("Runtime Info:"),
+		widget.NewLabel("Runtime Information:"),
 		widget.NewLabel(fmt.Sprintf("Go: %s", runtime.Version())),
 		widget.NewLabel(fmt.Sprintf("Platform: %s/%s", runtime.GOOS, runtime.GOARCH)),
+		widget.NewLabel(fmt.Sprintf("CPUs: %d", runtime.NumCPU())),
 		widget.NewLabel("OpenCV: 4.11.0+"),
+		widget.NewLabel("Fyne: v2.6.1"),
 	)
 
 	dialog.ShowCustom("About", "Close", aboutContent, a.window)
 }
 
-func calculateMinimumWindowSize() fyne.Size {
-	imageDisplayWidth := widgets.ImageAreaWidth * 2
-	toolbarHeight := float32(50)
-	parametersHeight := float32(150)
+func (a *Application) Run(ctx context.Context) error {
+	a.logger.Info("Starting UI display", nil)
 
-	minimumWidth := float32(imageDisplayWidth + 100)
-	minimumHeight := float32(widgets.ImageAreaHeight + toolbarHeight + parametersHeight + 100)
+	// Use fyne.Do for thread-safe UI operations
+	fyne.Do(func() {
+		a.window.Show()
+	})
 
-	return fyne.Size{
-		Width:  minimumWidth,
-		Height: minimumHeight,
-	}
+	go func() {
+		select {
+		case <-a.shutdown:
+			a.logger.Info("Shutdown signal received", nil)
+			fyne.Do(func() {
+				a.fyneApp.Quit()
+			})
+		case <-ctx.Done():
+			a.logger.Info("Context cancelled", nil)
+			a.initiateShutdown()
+		}
+	}()
+
+	a.fyneApp.Run()
+	a.wg.Wait()
+	return nil
 }
 
 func (a *Application) setupSignalHandling() {
@@ -200,7 +180,7 @@ func (a *Application) setupSignalHandling() {
 	go func() {
 		select {
 		case sig := <-sigChan:
-			a.logger.Info("Application", "shutdown signal received", map[string]interface{}{
+			a.logger.Info("System signal received", map[string]interface{}{
 				"signal": sig.String(),
 			})
 			a.initiateShutdown()
@@ -208,42 +188,6 @@ func (a *Application) setupSignalHandling() {
 			return
 		}
 	}()
-}
-
-func (a *Application) Run() error {
-	if !a.menuSetup {
-		a.logger.Info("Application", "setting up menu in Run", nil)
-		a.setupMenu()
-		a.menuSetup = true
-	}
-
-	a.window.SetCloseIntercept(func() {
-		a.logger.Info("Application", "shutdown requested via window close", nil)
-		a.initiateShutdown()
-		a.window.Close()
-	})
-
-	fyne.Do(func() {
-		a.guiManager.Show()
-		a.logger.Info("Application", "GUI displayed", nil)
-	})
-
-	go func() {
-		<-a.shutdown
-		fyne.Do(func() {
-			a.fyneApp.Quit()
-		})
-	}()
-
-	a.fyneApp.Run()
-	a.wg.Wait()
-	return nil
-}
-
-func (a *Application) ForceMenuSetup() {
-	a.logger.Info("Application", "ForceMenuSetup called from main", nil)
-	a.setupMenu()
-	a.logger.Info("Application", "ForceMenuSetup completed", nil)
 }
 
 func (a *Application) initiateShutdown() {
@@ -254,64 +198,70 @@ func (a *Application) initiateShutdown() {
 		close(a.shutdown)
 	}
 
-	a.logger.Info("Application", "shutdown sequence initiated", map[string]interface{}{
-		"components": len(a.shutdownables),
-	})
-
+	a.logger.Info("Shutdown sequence starting", nil)
 	a.cancel()
 
-	for i := len(a.shutdownables) - 1; i >= 0; i-- {
-		component := a.shutdownables[i]
+	// Shutdown components with timeout
+	shutdownTimeout := 15 * time.Second
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer shutdownCancel()
 
+	shutdownComponents := []func(){
+		a.controller.Shutdown,
+		a.coordinator.Shutdown,
+		a.memoryManager.Shutdown,
+	}
+
+	for i, shutdownFunc := range shutdownComponents {
 		done := make(chan struct{})
-		go func() {
+		go func(fn func()) {
 			defer close(done)
-			component.Shutdown()
-		}()
+			fn()
+		}(shutdownFunc)
 
 		select {
 		case <-done:
-		case <-time.After(10 * time.Second):
-			a.logger.Warning("Application", "component shutdown timeout", map[string]interface{}{
+		case <-shutdownCtx.Done():
+			a.logger.Warning("Component shutdown timeout", map[string]interface{}{
 				"component_index": i,
 			})
 		}
 	}
 
-	a.logger.Info("Application", "shutdown sequence completed", nil)
+	a.logger.Info("Shutdown sequence completed", nil)
 }
 
-func (a *Application) Shutdown(ctx context.Context) error {
-	a.initiateShutdown()
+func calculateWindowSize() fyne.Size {
+	// Modern responsive sizing for high-DPI displays
+	baseWidth := float32(1200)
+	baseHeight := float32(800)
 
-	done := make(chan struct{})
-	go func() {
-		a.wg.Wait()
-		close(done)
-	}()
+	// Adjust for system capabilities
+	if runtime.NumCPU() >= 8 {
+		baseWidth *= 1.2
+		baseHeight *= 1.2
+	}
 
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	return fyne.Size{
+		Width:  baseWidth,
+		Height: baseHeight,
 	}
 }
 
-func getLogLevel() zerolog.Level {
+func determineLogLevel() logger.LogLevel {
 	switch os.Getenv("LOG_LEVEL") {
 	case "debug":
-		return zerolog.DebugLevel
+		return logger.DebugLevel
 	case "info":
-		return zerolog.InfoLevel
+		return logger.InfoLevel
 	case "warn":
-		return zerolog.WarnLevel
+		return logger.WarnLevel
 	case "error":
-		return zerolog.ErrorLevel
+		return logger.ErrorLevel
 	default:
-		if os.Getenv("OTSU_DEBUG_ALL") == "true" {
-			return zerolog.DebugLevel
+		if os.Getenv("DEBUG") == "1" {
+			return logger.DebugLevel
 		}
-		return zerolog.InfoLevel
+		return logger.InfoLevel
 	}
 }

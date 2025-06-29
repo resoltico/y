@@ -199,3 +199,17 @@ func (t *TwoDimensionalBuilder) SmoothHistogram(histogram [][]float64, sigma flo
 		}
 	}
 }
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

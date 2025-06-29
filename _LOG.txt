@@ -1,79 +1,13 @@
-[3:22:38 AM] % ./build.sh debug memory
-[03:22:39] Checking dependencies...
-✓ Go 1.24 detected
-✓ OpenCV found
-✓ All dependencies verified
-[03:22:39] Running with memory debugging and MatProfile
-# otsu-obliterator/cmd/otsu-obliterator
-ld: warning: ignoring duplicate libraries: '-lobjc'
-ld: warning: '/private/var/folders/17/3rxcmy6n2618pt23clygxh8m0000gn/T/com.apple.shortcuts.mac-helper/go-link-1248668338/000093.o' has malformed LC_DYSYMTAB, expected 98 undefined symbols to start at index 1626, found 95 undefined symbols starting at index 1626
-2025/06/29 03:22:42 MAIN: Starting main function
-03:22:42 INF starting application component=Application log_level=debug version=1.0.0 window_height=700 window_width=1100
-03:22:42 INF initialized with adaptive limits component=MemoryManager gc_trigger_mb=358 gocv_initial_count=0 max_memory_mb=512 system_memory_mb=7
-03:22:42 INF initialized with segmentation metrics component=PipelineCoordinator
-03:22:43 INF initialized with MVC pattern component=GUIManager window_title="Otsu Obliterator"
-03:22:43 INF processing coordinator connected component=GUIManager
-03:22:43 INF creating application struct component=Application
-03:22:43 INF initialization complete component=Application
-2025/06/29 03:22:43 MAIN: About to call ForceMenuSetup
-03:22:43 INF ForceMenuSetup called from main component=Application
-03:22:43 INF menu setup completed component=Application menus=["File","Help"]
-03:22:43 INF ForceMenuSetup completed component=Application
-2025/06/29 03:22:43 MAIN: ForceMenuSetup completed
-2025/06/29 03:22:43 MAIN: About to call Run
-03:22:43 INF setting up menu in Run component=Application
-03:22:43 INF menu setup completed component=Application menus=["File","Help"]
-03:22:43 INF GUI displayed component=GUIManager
-03:22:43 INF GUI displayed component=Application
-03:22:48 INF image loaded channels=3 component=ImageLoader format=tiff height=804 width=1115
-03:22:48 INF image loaded with validation channels=3 component=PipelineCoordinator format=tiff height=804 load_time=702932833 memory_usage=0 width=1115
-03:22:48 DBG SetPreviewImage called component=View image_nil=true image_type=<nil>
-03:22:48 DBG SetPreviewImage completed component=View
-03:22:48 DBG SetOriginalImage called component=View image_nil=false image_type=*image.RGBA
-03:22:48 DBG SetOriginalImage completed component=View
-03:22:48 INF image loaded component=Controller format=tiff height=804 load_time=712887625 width=1115
-2025/06/29 03:22:51 DEBUG: Starting ProcessWithContext
-2025/06/29 03:22:51 DEBUG: Input Mat valid: 1115x804, channels=3
-2025/06/29 03:22:51 DEBUG: Parameters validated
-2025/06/29 03:22:51 DEBUG: Starting preprocessing
-2025/06/29 03:22:53 DEBUG: Preprocessing completed: 1115x804, channels=1
-2025/06/29 03:22:53 DEBUG: Calculating neighborhood means
-03:22:57 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=4 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-2025/06/29 03:23:01 DEBUG: Neighborhood calculation completed: 1115x804
-2025/06/29 03:23:01 DEBUG: Building 2D histogram
-2025/06/29 03:23:07 DEBUG: Histogram built: 128x128 bins
-2025/06/29 03:23:07 DEBUG: Calculating threshold
-03:23:12 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=3 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:23:27 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=3 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:23:42 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=3 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:23:57 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=3 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:24:12 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=3 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:24:27 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=3 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:24:42 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=3 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:24:57 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=3 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:25:12 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=3 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:25:27 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=3 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:25:42 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=3 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-2025/06/29 03:25:47 DEBUG: Threshold calculated: [45.900, 44.900]
-2025/06/29 03:25:47 DEBUG: Applying threshold
-2025/06/29 03:25:54 DEBUG: Threshold applied: 1115x804
-2025/06/29 03:25:54 DEBUG: Starting postprocessing
-2025/06/29 03:25:54 DEBUG: Postprocessing failed: context deadline exceeded
-03:25:54 ERR operation failed error="algorithm processing failed: postprocessing failed: context deadline exceeded" algorithm="2D Otsu" component=PipelineCoordinator
-03:25:54 ERR operation failed error="algorithm processing failed: postprocessing failed: context deadline exceeded" component=Controller title="Processing error"
-03:25:57 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=1 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:26:12 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=1 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:26:27 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=1 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:26:42 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=1 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:26:57 DBG memory statistics active_mats=0 allocations=0 component=MemoryManager deallocations=0 gocv_mat_count=1 leak_indicator=0 max_mb=512 used_mb=0 utilization=0
-03:27:05 INF shutdown requested via window close component=Application
-03:27:05 INF shutdown sequence initiated component=Application components=3
-03:27:05 INF shutdown initiated component=GUIManager
-03:27:05 INF shutdown completed component=Controller
-03:27:05 INF shutdown completed component=GUIManager
-03:27:05 INF shutdown started with memory cleanup component=PipelineCoordinator
-03:27:05 INF shutdown completed component=PipelineCoordinator final_memory_usage=0 memory_leak_check=-1 total_allocations=0 total_deallocations=1
-03:27:05 INF cleanup completed component=MemoryManager final_allocations=0 final_deallocations=1 final_gocv_count=0 mats_cleaned=0 memory_freed_mb=0
-03:27:05 INF shutdown sequence completed component=Application
-2025/06/29 03:27:05 MAIN: Run completed
-[3:28:22 AM] % 
+[6:55:44 PM] % ./build.sh debug memory
+[18:55:44] Validating build environment...
+✓ Go 1.24 detected (supports Swiss Tables optimization)
+✓ OpenCV4 4.11.0 found (recommended)
+✓ Build environment validated - ready for modern development
+[18:55:44] Running with memory debugging and GoCV Mat profiling
+gc 1 @0.016s 2%: 0.004+1.3+0.001 ms clock, 0.004+0.11/0.34/0+0.001 ms cpu, 3->3->0 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 2 @0.034s 3%: 0.010+1.9+0.001 ms clock, 0.010+0.14/0.55/0+0.001 ms cpu, 3->4->1 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 3 @0.039s 5%: 0.008+2.0+0 ms clock, 0.008+0.88/0/0+0 ms cpu, 3->4->2 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 4 @0.044s 6%: 0.003+4.0+0 ms clock, 0.003+1.3/0/0+0 ms cpu, 4->6->4 MB, 5 MB goal, 0 MB stacks, 0 MB globals, 1 P
+internal/processing/filters/grayscale.go:6:2: package otsu-obliterator/internal/opencv/conversion is not in std (/opt/homebrew/Cellar/go/1.24.4/libexec/src/otsu-obliterator/internal/opencv/conversion)
+✗ Build script failed with exit code 1
+[6:57:32 PM] % 

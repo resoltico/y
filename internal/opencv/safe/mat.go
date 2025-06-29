@@ -5,14 +5,12 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
 	"gocv.io/x/gocv"
 )
 
 type MemoryTracker interface {
-	TrackAllocation(ptr uintptr, size int64, tag string)
-	TrackDeallocation(ptr uintptr, tag string)
+	ReleaseMat(mat *Mat, tag string)
 }
 
 type Mat struct {
@@ -46,7 +44,7 @@ func NewMatWithTracker(rows, cols int, matType gocv.MatType, memTracker MemoryTr
 	mat := gocv.NewMatWithSize(rows, cols, matType)
 	if mat.Empty() {
 		mat.Close()
-		return nil, fmt.Errorf("failed to create Mat with size %dx%d", cols, rows)
+		return nil, fmt.Errorf("failed to create Mat with dimensions %dx%d type %d", cols, rows, int(matType))
 	}
 
 	safeMat := matPool.Get().(*Mat)
@@ -59,12 +57,7 @@ func NewMatWithTracker(rows, cols int, matType gocv.MatType, memTracker MemoryTr
 	safeMat.isValid.Store(true)
 	safeMat.refCount.Store(1)
 
-	if memTracker != nil {
-		size := int64(rows * cols * getMatTypeSize(matType))
-		ptr := uintptr(unsafe.Pointer(&mat))
-		memTracker.TrackAllocation(ptr, size, tag)
-	}
-
+	// Use Go 1.24 cleanup patterns
 	runtime.SetFinalizer(safeMat, (*Mat).finalize)
 	return safeMat, nil
 }
@@ -94,12 +87,6 @@ func NewMatFromMatWithTracker(srcMat gocv.Mat, memTracker MemoryTracker, tag str
 	safeMat.isValid.Store(true)
 	safeMat.refCount.Store(1)
 
-	if memTracker != nil {
-		size := int64(srcMat.Rows() * srcMat.Cols() * getMatTypeSize(srcMat.Type()))
-		ptr := uintptr(unsafe.Pointer(&clonedMat))
-		memTracker.TrackAllocation(ptr, size, tag)
-	}
-
 	runtime.SetFinalizer(safeMat, (*Mat).finalize)
 	return safeMat, nil
 }
@@ -111,17 +98,12 @@ func (sm *Mat) IsValid() bool {
 func (sm *Mat) Empty() bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-
-	if !sm.IsValid() {
-		return true
-	}
-	return sm.mat.Empty()
+	return !sm.IsValid() || sm.mat.Empty()
 }
 
 func (sm *Mat) Rows() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-
 	if !sm.IsValid() {
 		return 0
 	}
@@ -131,7 +113,6 @@ func (sm *Mat) Rows() int {
 func (sm *Mat) Cols() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-
 	if !sm.IsValid() {
 		return 0
 	}
@@ -141,7 +122,6 @@ func (sm *Mat) Cols() int {
 func (sm *Mat) Channels() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-
 	if !sm.IsValid() {
 		return 0
 	}
@@ -151,7 +131,6 @@ func (sm *Mat) Channels() int {
 func (sm *Mat) Type() gocv.MatType {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-
 	if !sm.IsValid() {
 		return gocv.MatTypeCV8UC1
 	}
@@ -162,12 +141,8 @@ func (sm *Mat) Clone() (*Mat, error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	if !sm.IsValid() {
-		return nil, fmt.Errorf("cannot clone invalid Mat")
-	}
-
-	if sm.mat.Empty() {
-		return nil, fmt.Errorf("cannot clone empty Mat")
+	if !sm.IsValid() || sm.mat.Empty() {
+		return nil, fmt.Errorf("cannot clone invalid or empty Mat")
 	}
 
 	return NewMatFromMatWithTracker(sm.mat, sm.memTracker, sm.tag+"_clone")
@@ -186,10 +161,6 @@ func (sm *Mat) CopyTo(dst *Mat) error {
 
 	if !dst.IsValid() {
 		return fmt.Errorf("destination Mat is invalid")
-	}
-
-	if sm.mat.Empty() {
-		return fmt.Errorf("source Mat is empty")
 	}
 
 	sm.mat.CopyTo(&dst.mat)
@@ -309,8 +280,8 @@ func (sm *Mat) Close() {
 	defer sm.mu.Unlock()
 
 	if sm.memTracker != nil {
-		ptr := uintptr(unsafe.Pointer(&sm.mat))
-		sm.memTracker.TrackDeallocation(ptr, sm.tag)
+		sm.memTracker.ReleaseMat(sm, sm.tag)
+		sm.memTracker = nil
 	}
 
 	if !sm.mat.Empty() {
@@ -319,7 +290,6 @@ func (sm *Mat) Close() {
 
 	runtime.SetFinalizer(sm, nil)
 	sm.mat = gocv.Mat{}
-	sm.memTracker = nil
 	sm.tag = ""
 	sm.refCount.Store(0)
 	sm.id = 0
@@ -363,7 +333,7 @@ func validateDimensions(rows, cols int) error {
 		return fmt.Errorf("invalid dimensions: %dx%d", cols, rows)
 	}
 
-	if rows > 32768 || cols > 32768 {
+	if rows > 65536 || cols > 65536 {
 		return fmt.Errorf("dimensions %dx%d exceed maximum size", cols, rows)
 	}
 
@@ -401,68 +371,4 @@ func ValidateMatForOperation(mat *Mat, operation string) error {
 	}
 
 	return nil
-}
-
-func ValidateColorConversion(src *Mat, code gocv.ColorConversionCode) error {
-	if err := ValidateMatForOperation(src, "CvtColor"); err != nil {
-		return err
-	}
-
-	channels := src.Channels()
-
-	switch code {
-	case gocv.ColorBGRToGray, gocv.ColorRGBToGray:
-		if channels != 3 {
-			return fmt.Errorf("BGR/RGB to Gray conversion requires 3 channels, got %d", channels)
-		}
-	case gocv.ColorGrayToBGR:
-		if channels != 1 {
-			return fmt.Errorf("Gray to BGR conversion requires 1 channel, got %d", channels)
-		}
-	case gocv.ColorBGRToRGB:
-		if channels != 3 {
-			return fmt.Errorf("BGR/RGB conversion requires 3 channels, got %d", channels)
-		}
-	case gocv.ColorBGRToBGRA:
-		if channels != 3 {
-			return fmt.Errorf("BGR to BGRA conversion requires 3 channels, got %d", channels)
-		}
-	case gocv.ColorBGRAToBGR:
-		if channels != 4 {
-			return fmt.Errorf("BGRA to BGR conversion requires 4 channels, got %d", channels)
-		}
-	}
-
-	return nil
-}
-
-func getMatTypeSize(matType gocv.MatType) int {
-	switch matType {
-	case gocv.MatTypeCV8UC1:
-		return 1
-	case gocv.MatTypeCV8UC3:
-		return 3
-	case gocv.MatTypeCV8UC4:
-		return 4
-	case gocv.MatTypeCV16UC1:
-		return 2
-	case gocv.MatTypeCV16UC3:
-		return 6
-	case gocv.MatTypeCV16UC4:
-		return 8
-	case gocv.MatTypeCV32FC1:
-		return 4
-	case gocv.MatTypeCV32FC3:
-		return 12
-	case gocv.MatTypeCV32FC4:
-		return 16
-	case gocv.MatTypeCV64FC1:
-		return 8
-	case gocv.MatTypeCV64FC3:
-		return 24
-	case gocv.MatTypeCV64FC4:
-		return 32
-	default:
-		return 1
-	}
 }

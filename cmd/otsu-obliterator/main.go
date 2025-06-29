@@ -1,26 +1,38 @@
 package main
 
 import (
+	"context"
 	"log"
+	"runtime"
+	"time"
+
 	"otsu-obliterator/internal/app"
 )
 
 func main() {
-	log.Println("MAIN: Starting main function")
+	log.Println("Starting Otsu Obliterator v1.0.0")
 
-	application, err := app.NewApplication()
+	// Configure runtime for Go 1.24 performance
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	// Set GC target for image processing workloads
+	runtime.SetGCPercent(200)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	application, err := app.NewApplication(ctx)
 	if err != nil {
-		log.Fatalf("Failed to create application: %v", err)
+		log.Fatalf("Application creation failed: %v", err)
 	}
 
-	log.Println("MAIN: About to call ForceMenuSetup")
-	// Force menu setup before any GUI operations
-	application.ForceMenuSetup()
-	log.Println("MAIN: ForceMenuSetup completed")
+	log.Println("Initializing menu system")
+	application.SetupMenus()
+	log.Println("Menu system ready")
 
-	log.Println("MAIN: About to call Run")
-	if err := application.Run(); err != nil {
-		log.Fatalf("Application failed: %v", err)
+	log.Println("Starting application")
+	if err := application.Run(ctx); err != nil {
+		log.Fatalf("Application execution failed: %v", err)
 	}
-	log.Println("MAIN: Run completed")
+	log.Println("Application terminated successfully")
 }

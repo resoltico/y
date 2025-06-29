@@ -3,46 +3,94 @@ package gui
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"otsu-obliterator/internal/algorithms"
+	"otsu-obliterator/internal/gui/widgets"
 	"otsu-obliterator/internal/logger"
 	"otsu-obliterator/internal/pipeline"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 )
 
 type Controller struct {
-	view             *View
-	coordinator      pipeline.ProcessingCoordinator
+	coordinator      *pipeline.Coordinator
 	algorithmManager *algorithms.Manager
 	logger           logger.Logger
 
+	// UI components
+	toolbar        *widgets.Toolbar
+	imageDisplay   *widgets.ImageDisplay
+	parameterPanel *widgets.ParameterPanel
+	mainContainer  *fyne.Container
+
+	// State management
 	mu                sync.RWMutex
 	currentAlgorithm  string
 	currentParameters map[string]interface{}
-	processingActive  bool
+	processingActive  atomic.Bool
 
+	// Processing control
 	processCtx    context.Context
 	processCancel context.CancelFunc
+
+	// Worker pool for UI operations
+	uiWorkers chan struct{}
 }
 
-func NewController(coord pipeline.ProcessingCoordinator, log logger.Logger) *Controller {
-	return &Controller{
+func NewController(coord *pipeline.Coordinator, log logger.Logger) *Controller {
+	// Initialize worker pool for UI operations
+	uiWorkers := make(chan struct{}, runtime.NumCPU())
+	for i := 0; i < runtime.NumCPU(); i++ {
+		uiWorkers <- struct{}{}
+	}
+
+	controller := &Controller{
 		coordinator:       coord,
 		algorithmManager:  algorithms.NewManager(),
 		logger:            log,
 		currentAlgorithm:  "2D Otsu",
 		currentParameters: make(map[string]interface{}),
+		uiWorkers:         uiWorkers,
 	}
+
+	controller.initializeComponents()
+	controller.initializeDefaultParameters()
+
+	log.Info("GUI controller initialized", map[string]interface{}{
+		"default_algorithm": controller.currentAlgorithm,
+		"ui_workers":        runtime.NumCPU(),
+	})
+
+	return controller
 }
 
-func (c *Controller) SetView(view *View) {
-	c.view = view
-	c.initializeDefaultParameters()
+func (c *Controller) initializeComponents() {
+	c.toolbar = widgets.NewToolbar()
+	c.imageDisplay = widgets.NewImageDisplay()
+	c.parameterPanel = widgets.NewParameterPanel()
+
+	// Setup event handlers using Fyne v2.6+ patterns
+	c.toolbar.SetLoadHandler(c.LoadImage)
+	c.toolbar.SetSaveHandler(c.SaveImage)
+	c.toolbar.SetProcessHandler(c.ProcessImage)
+	c.toolbar.SetAlgorithmChangeHandler(c.ChangeAlgorithm)
+
+	c.parameterPanel.SetParameterChangeHandler(c.UpdateParameter)
+}
+
+func (c *Controller) CreateMainContent() *fyne.Container {
+	c.mainContainer = container.NewVBox(
+		c.imageDisplay.GetContainer(),
+		c.toolbar.GetContainer(),
+		c.parameterPanel.GetContainer(),
+	)
+	return c.mainContainer
 }
 
 func (c *Controller) initializeDefaultParameters() {
@@ -51,55 +99,74 @@ func (c *Controller) initializeDefaultParameters() {
 	c.currentParameters = params
 	c.mu.Unlock()
 
+	// Use fyne.Do for thread-safe UI updates
 	fyne.Do(func() {
-		c.view.UpdateParameterPanel(c.currentAlgorithm, params)
+		c.parameterPanel.UpdateParameters(c.currentAlgorithm, params)
 	})
 }
 
 func (c *Controller) LoadImage() {
-	c.view.ShowFileDialog(func(reader fyne.URIReadCloser, err error) {
-		if err != nil {
-			c.handleError("File selection error", err)
-			return
-		}
-		if reader == nil {
-			return
-		}
+	c.logger.Debug("Load image requested", nil)
 
-		fyne.Do(func() {
+	// Use worker pool for file operations
+	go func() {
+		select {
+		case <-c.uiWorkers:
+			defer func() { c.uiWorkers <- struct{}{} }()
+			c.performImageLoad()
+		default:
+			c.logger.Warning("UI worker pool exhausted for image load", nil)
+		}
+	}()
+}
+
+func (c *Controller) performImageLoad() {
+	// Use fyne.Do for UI dialog operations
+	fyne.Do(func() {
+		dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
+			if err != nil {
+				c.handleError("File selection error", err)
+				return
+			}
+			if reader == nil {
+				return
+			}
+
 			c.updateStatus("Loading image...")
-			c.updateStage("Reading file data...")
+
+			// Perform loading in background
+			go func() {
+				defer reader.Close()
+				c.processImageLoad(reader)
+			}()
+		}, c.getMainWindow())
+	})
+}
+
+func (c *Controller) processImageLoad(reader fyne.URIReadCloser) {
+	start := time.Now()
+
+	imageData, err := c.coordinator.LoadImage(reader)
+	if err != nil {
+		fyne.Do(func() {
+			c.handleError("Image load error", err)
+			c.updateStatus("Ready")
 		})
+		return
+	}
 
-		go func() {
-			defer reader.Close()
+	// Update UI on main thread
+	fyne.Do(func() {
+		c.imageDisplay.SetOriginalImage(imageData.Image)
+		c.imageDisplay.SetPreviewImage(nil) // Clear previous preview
+		c.updateStatus("Image loaded")
 
-			start := time.Now()
-			imageData, loadErr := c.coordinator.LoadImage(reader)
-
-			fyne.Do(func() {
-				if loadErr != nil {
-					c.handleError("Image load error", loadErr)
-					c.updateStatus("Ready")
-					c.updateStage("")
-					return
-				}
-
-				c.view.SetPreviewImage(nil)
-				c.view.SetOriginalImage(imageData.Image)
-				c.updateStatus("Image loaded")
-				c.updateStage("")
-
-				c.view.GetMainContainer().Refresh()
-
-				c.logger.Info("Controller", "image loaded", map[string]interface{}{
-					"width":     imageData.Width,
-					"height":    imageData.Height,
-					"format":    imageData.Format,
-					"load_time": time.Since(start),
-				})
-			})
-		}()
+		c.logger.Info("Image loaded successfully", map[string]interface{}{
+			"width":     imageData.Width,
+			"height":    imageData.Height,
+			"format":    imageData.Format,
+			"load_time": time.Since(start),
+		})
 	})
 }
 
@@ -110,23 +177,188 @@ func (c *Controller) SaveImage() {
 		return
 	}
 
-	c.view.ShowSaveDialog(func(writer fyne.URIWriteCloser, err error) {
-		if err != nil {
-			c.handleError("File save error", err)
-			return
-		}
-		if writer == nil {
-			return
-		}
+	c.logger.Debug("Save image requested", nil)
 
-		ext := strings.ToLower(writer.URI().Extension())
-		if ext == "" {
-			c.showFormatSelectionDialog(writer, processedImg)
-			return
-		}
+	fyne.Do(func() {
+		dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
+			if err != nil {
+				c.handleError("File save error", err)
+				return
+			}
+			if writer == nil {
+				return
+			}
 
-		c.saveImageWithWriter(writer, processedImg)
+			c.updateStatus("Saving image...")
+
+			// Perform saving in background
+			go func() {
+				defer writer.Close()
+				c.processSaveImage(writer, processedImg)
+			}()
+		}, c.getMainWindow())
 	})
+}
+
+func (c *Controller) processSaveImage(writer fyne.URIWriteCloser, imageData *pipeline.ImageData) {
+	start := time.Now()
+
+	err := c.coordinator.SaveImage(writer, imageData)
+
+	fyne.Do(func() {
+		if err != nil {
+			c.handleError("Image save error", err)
+		} else {
+			c.updateStatus("Image saved")
+			c.logger.Info("Image saved successfully", map[string]interface{}{
+				"path":      writer.URI().Path(),
+				"save_time": time.Since(start),
+			})
+		}
+	})
+}
+
+func (c *Controller) ProcessImage() {
+	if !c.processingActive.CompareAndSwap(false, true) {
+		c.logger.Warning("Processing already in progress", nil)
+		return
+	}
+
+	originalImg := c.coordinator.GetOriginalImage()
+	if originalImg == nil {
+		c.processingActive.Store(false)
+		c.handleError("Processing error", fmt.Errorf("no image loaded"))
+		return
+	}
+
+	fyne.Do(func() {
+		c.updateStatus("Starting processing...")
+	})
+
+	// Create processing context with reasonable timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	c.mu.Lock()
+	c.processCtx = ctx
+	c.processCancel = cancel
+	c.mu.Unlock()
+
+	go c.performImageProcessing(ctx)
+}
+
+func (c *Controller) performImageProcessing(ctx context.Context) {
+	defer func() {
+		c.processingActive.Store(false)
+		c.mu.Lock()
+		if c.processCancel != nil {
+			c.processCancel()
+			c.processCancel = nil
+		}
+		c.mu.Unlock()
+	}()
+
+	algorithm := c.getCurrentAlgorithm()
+	params := c.getCurrentParameters()
+
+	// Update status with processing stages
+	stages := c.getProcessingStages(algorithm)
+	for i, stage := range stages {
+		select {
+		case <-ctx.Done():
+			fyne.Do(func() {
+				c.updateStatus("Processing cancelled")
+			})
+			return
+		default:
+		}
+
+		fyne.Do(func() {
+			stageInfo := fmt.Sprintf("Step %d/%d: %s", i+1, len(stages), stage)
+			c.updateStatus(stageInfo)
+		})
+
+		// Small delay to show progress
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	start := time.Now()
+	processedImg, err := c.coordinator.ProcessImageWithContext(ctx, algorithm, params)
+	processingTime := time.Since(start)
+
+	fyne.Do(func() {
+		if err != nil {
+			if ctx.Err() != nil {
+				c.updateStatus("Processing cancelled")
+			} else {
+				c.handleError("Processing error", err)
+				c.updateStatus("Processing failed")
+			}
+			return
+		}
+
+		if processedImg != nil {
+			c.imageDisplay.SetPreviewImage(processedImg.Image)
+			c.updateSegmentationMetrics(processedImg)
+			c.updateStatus("Processing completed")
+
+			c.logger.Info("Processing completed successfully", map[string]interface{}{
+				"algorithm":       algorithm,
+				"processing_time": processingTime,
+				"output_size":     fmt.Sprintf("%dx%d", processedImg.Width, processedImg.Height),
+			})
+		} else {
+			c.updateStatus("Processing failed - no result")
+		}
+	})
+}
+
+func (c *Controller) getProcessingStages(algorithm string) []string {
+	switch algorithm {
+	case "2D Otsu":
+		return []string{
+			"Converting to grayscale",
+			"Applying noise reduction",
+			"Building 2D histogram",
+			"Calculating threshold",
+			"Applying threshold",
+			"Post-processing cleanup",
+		}
+	case "Iterative Triclass":
+		return []string{
+			"Converting to grayscale",
+			"Advanced preprocessing",
+			"Initial threshold estimation",
+			"Iterative refinement",
+			"Convergence analysis",
+			"Final cleanup",
+		}
+	default:
+		return []string{"Processing"}
+	}
+}
+
+func (c *Controller) updateSegmentationMetrics(processedImg *pipeline.ImageData) {
+	originalImg := c.coordinator.GetOriginalImage()
+	if originalImg == nil {
+		return
+	}
+
+	metrics, err := c.coordinator.CalculateSegmentationMetrics(originalImg, processedImg)
+	if err != nil {
+		c.logger.Warning("Failed to calculate metrics", map[string]interface{}{
+			"error": err.Error(),
+		})
+		// Use default metrics
+		c.toolbar.SetSegmentationMetrics(0.5, 0.5, 0.25, 0.7, 0.6)
+		return
+	}
+
+	c.toolbar.SetSegmentationMetrics(
+		metrics.IoU,
+		metrics.DiceCoefficient,
+		metrics.MisclassificationError,
+		metrics.RegionUniformity,
+		metrics.BoundaryAccuracy,
+	)
 }
 
 func (c *Controller) ChangeAlgorithm(algorithm string) {
@@ -145,7 +377,11 @@ func (c *Controller) ChangeAlgorithm(algorithm string) {
 	c.mu.Unlock()
 
 	fyne.Do(func() {
-		c.view.UpdateParameterPanel(algorithm, params)
+		c.parameterPanel.UpdateParameters(algorithm, params)
+	})
+
+	c.logger.Debug("Algorithm changed", map[string]interface{}{
+		"algorithm": algorithm,
 	})
 }
 
@@ -160,117 +396,12 @@ func (c *Controller) UpdateParameter(name string, value interface{}) {
 		c.handleError("Parameter update error", err)
 		return
 	}
-}
 
-func (c *Controller) ProcessImage() {
-	if c.isProcessing() {
-		return
-	}
-
-	originalImg := c.coordinator.GetOriginalImage()
-	if originalImg == nil {
-		c.handleError("Processing error", fmt.Errorf("no image loaded"))
-		return
-	}
-
-	c.setProcessing(true)
-	fyne.Do(func() {
-		c.updateStatus("Initializing...")
+	c.logger.Debug("Parameter updated", map[string]interface{}{
+		"algorithm": algorithm,
+		"parameter": name,
+		"value":     value,
 	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	c.mu.Lock()
-	c.processCtx = ctx
-	c.processCancel = cancel
-	c.mu.Unlock()
-
-	go func() {
-		defer func() {
-			c.setProcessing(false)
-			fyne.Do(func() {
-				c.updateStatus("Ready")
-			})
-			cancel()
-		}()
-
-		algorithm := c.getCurrentAlgorithm()
-		params := c.getCurrentParameters()
-
-		stages := c.getProcessingStages(algorithm)
-		stageCount := len(stages)
-
-		for i, stage := range stages {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			fyne.Do(func() {
-				stageProgress := fmt.Sprintf("Stage %d/%d: %s", i+1, stageCount, stage)
-				c.updateStatus(stageProgress)
-			})
-
-			time.Sleep(200 * time.Millisecond)
-		}
-
-		start := time.Now()
-		processedImg, err := c.coordinator.ProcessImageWithContext(ctx, algorithm, params)
-		processingTime := time.Since(start)
-
-		fyne.Do(func() {
-			if err != nil {
-				c.handleError("Processing error", err)
-				c.updateStatus("Processing failed")
-				return
-			}
-
-			if processedImg != nil {
-				c.view.SetPreviewImage(processedImg.Image)
-				c.updateSegmentationMetrics(originalImg, processedImg)
-				c.updateStatus("Processing completed")
-
-				c.logger.Info("Controller", "processing completed", map[string]interface{}{
-					"algorithm":       algorithm,
-					"width":           processedImg.Width,
-					"height":          processedImg.Height,
-					"processing_time": processingTime,
-				})
-			} else {
-				c.updateStatus("Processing failed - no result")
-			}
-		})
-	}()
-}
-
-func (c *Controller) getProcessingStages(algorithm string) []string {
-	switch algorithm {
-	case "2D Otsu":
-		return []string{
-			"Converting to grayscale",
-			"Applying MAOTSU preprocessing",
-			"CLAHE contrast enhancement",
-			"Guided filtering",
-			"Building 2D histogram",
-			"Finding threshold",
-			"Applying threshold",
-			"Finalizing result",
-		}
-	case "Iterative Triclass":
-		return []string{
-			"Converting to grayscale",
-			"Advanced preprocessing",
-			"Non-local means denoising",
-			"Guided filtering",
-			"Initial threshold calculation",
-			"Iterative refinement",
-			"Convergence check",
-			"Morphological cleanup",
-			"Finalizing result",
-		}
-	default:
-		return []string{"Processing"}
-	}
 }
 
 func (c *Controller) CancelProcessing() {
@@ -279,65 +410,19 @@ func (c *Controller) CancelProcessing() {
 		c.processCancel()
 	}
 	c.mu.Unlock()
+
+	c.logger.Info("Processing cancellation requested", nil)
 }
 
 func (c *Controller) updateStatus(status string) {
-	c.view.SetStatus(status)
-}
-
-func (c *Controller) updateStage(stage string) {
-	c.view.SetStage(stage)
-}
-
-func (c *Controller) updateSegmentationMetrics(original, processed *pipeline.ImageData) {
-	metrics, err := c.coordinator.CalculateSegmentationMetrics(original, processed)
-	if err != nil {
-		c.logger.Warning("Controller", "failed to calculate segmentation metrics", map[string]interface{}{
-			"error": err.Error(),
-		})
-		// Set default metrics on error
-		c.view.SetSegmentationMetrics(0.5, 0.5, 0.25, 0.7, 0.6)
-		return
-	}
-
-	c.view.SetSegmentationMetrics(
-		metrics.IoU,
-		metrics.DiceCoefficient,
-		metrics.MisclassificationError,
-		metrics.RegionUniformity,
-		metrics.BoundaryAccuracy,
-	)
-
-	c.logger.Info("Controller", "segmentation metrics calculated", map[string]interface{}{
-		"iou":                     metrics.IoU,
-		"dice_coefficient":        metrics.DiceCoefficient,
-		"misclassification_error": metrics.MisclassificationError,
-		"region_uniformity":       metrics.RegionUniformity,
-		"boundary_accuracy":       metrics.BoundaryAccuracy,
-		"hausdorff_distance":      metrics.HausdorffDistance,
-	})
+	c.toolbar.SetStatus(status)
 }
 
 func (c *Controller) handleError(title string, err error) {
-	c.logger.Error("Controller", err, map[string]interface{}{
-		"title": title,
-	})
-
+	c.logger.Error(title, err, nil)
 	fyne.Do(func() {
-		c.view.ShowError(title, err)
+		dialog.ShowError(err, c.getMainWindow())
 	})
-}
-
-func (c *Controller) isProcessing() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.processingActive
-}
-
-func (c *Controller) setProcessing(active bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.processingActive = active
 }
 
 func (c *Controller) getCurrentAlgorithm() string {
@@ -357,97 +442,17 @@ func (c *Controller) getCurrentParameters() map[string]interface{} {
 	return result
 }
 
+func (c *Controller) getMainWindow() fyne.Window {
+	// This is a placeholder - in real implementation, you'd need to pass
+	// the window reference or get it from a parent container
+	return fyne.CurrentApp().Driver().AllWindows()[0]
+}
+
 func (c *Controller) Shutdown() {
 	c.CancelProcessing()
-	c.logger.Info("Controller", "shutdown completed", nil)
-}
 
-func (c *Controller) showFormatSelectionDialog(writer fyne.URIWriteCloser, processedImg *pipeline.ImageData) {
-	originalPath := writer.URI().Path()
-	writer.Close()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if err := os.Remove(originalPath); err != nil {
-		c.logger.Debug("Controller", "failed to remove empty file", map[string]interface{}{
-			"path":  originalPath,
-			"error": err.Error(),
-		})
-	}
-
-	fyne.Do(func() {
-		c.view.ShowFormatSelectionDialog(func(format string, confirmed bool) {
-			if !confirmed {
-				return
-			}
-
-			c.saveImageWithFormat(originalPath, processedImg, format)
-		})
-	})
-}
-
-func (c *Controller) saveImageWithFormat(imagePath string, processedImg *pipeline.ImageData, format string) {
-	fyne.Do(func() {
-		c.updateStatus("Saving image...")
-		c.updateStage("Writing file...")
-	})
-
-	go func() {
-		ext := ".png"
-		if format == "JPEG" {
-			ext = ".jpg"
-		}
-
-		finalPath := imagePath + ext
-
-		file, err := os.Create(finalPath)
-		if err != nil {
-			fyne.Do(func() {
-				c.handleError("File create error", err)
-				c.updateStage("")
-			})
-			return
-		}
-		defer file.Close()
-
-		saveErr := c.coordinator.SaveImageToWriter(file, processedImg, format)
-
-		fyne.Do(func() {
-			if saveErr != nil {
-				c.handleError("Image save error", saveErr)
-			} else {
-				c.updateStatus("Image saved")
-				c.logger.Info("Controller", "image saved with format", map[string]interface{}{
-					"path":   finalPath,
-					"format": format,
-				})
-			}
-			c.updateStage("")
-		})
-	}()
-}
-
-func (c *Controller) saveImageWithWriter(writer fyne.URIWriteCloser, processedImg *pipeline.ImageData) {
-	fyne.Do(func() {
-		c.updateStatus("Saving image...")
-		c.updateStage("Writing file...")
-	})
-
-	go func() {
-		defer writer.Close()
-
-		start := time.Now()
-		saveErr := c.coordinator.SaveImage(writer, processedImg)
-
-		fyne.Do(func() {
-			if saveErr != nil {
-				c.handleError("Image save error", saveErr)
-			} else {
-				c.updateStatus("Image saved")
-				c.logger.Info("Controller", "image saved", map[string]interface{}{
-					"path":      writer.URI().Path(),
-					"save_time": time.Since(start),
-				})
-			}
-			c.updateStage("")
-		})
-	}()
+	c.logger.Info("GUI controller shutdown completed", nil)
 }

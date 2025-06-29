@@ -3,31 +3,47 @@ package otsu
 import (
 	"context"
 	"fmt"
-	"log"
+	"image"
+	"runtime"
+	"sync"
 
 	"otsu-obliterator/internal/opencv/safe"
-	"otsu-obliterator/internal/processing/chain"
 	"otsu-obliterator/internal/processing/filters"
 	"otsu-obliterator/internal/processing/histogram"
 	"otsu-obliterator/internal/processing/threshold"
+
+	"gocv.io/x/gocv"
 )
 
 type Processor struct {
-	name          string
-	preprocessor  *chain.ProcessingChain
-	histogramCalc *histogram.TwoDimensionalBuilder
-	thresholdCalc *threshold.Otsu2DCalculator
-	postprocessor *chain.ProcessingChain
+	name       string
+	workerPool chan struct{}
+	matPool    sync.Pool
+	mu         sync.RWMutex
 }
 
 func NewProcessor() *Processor {
-	return &Processor{
-		name:          "2D Otsu",
-		preprocessor:  createPreprocessingChain(),
-		histogramCalc: histogram.NewTwoDimensionalBuilder(),
-		thresholdCalc: threshold.NewOtsu2DCalculator(),
-		postprocessor: createPostprocessingChain(),
+	// Create worker pool sized for CPU count
+	workers := make(chan struct{}, runtime.NumCPU())
+	for i := 0; i < runtime.NumCPU(); i++ {
+		workers <- struct{}{}
 	}
+
+	return &Processor{
+		name:       "2D Otsu",
+		workerPool: workers,
+		matPool: sync.Pool{
+			New: func() interface{} {
+				return &matPoolItem{}
+			},
+		},
+	}
+}
+
+type matPoolItem struct {
+	grayscale    *safe.Mat
+	neighborhood *safe.Mat
+	temporary    *safe.Mat
 }
 
 func (p *Processor) GetName() string {
@@ -37,7 +53,7 @@ func (p *Processor) GetName() string {
 func (p *Processor) GetDefaultParameters() map[string]interface{} {
 	return map[string]interface{}{
 		"window_size":            7,
-		"histogram_bins":         0,
+		"histogram_bins":         0, // Auto-calculate
 		"smoothing_strength":     1.0,
 		"noise_robustness":       true,
 		"gaussian_preprocessing": true,
@@ -70,30 +86,6 @@ func (p *Processor) ValidateParameters(params map[string]interface{}) error {
 		}
 	}
 
-	if clipLimit, ok := params["clahe_clip_limit"].(float64); ok {
-		if clipLimit < 1.0 || clipLimit > 8.0 {
-			return fmt.Errorf("clahe_clip_limit must be between 1.0 and 8.0, got: %f", clipLimit)
-		}
-	}
-
-	if tileSize, ok := params["clahe_tile_size"].(int); ok {
-		if tileSize < 4 || tileSize > 16 {
-			return fmt.Errorf("clahe_tile_size must be between 4 and 16, got: %d", tileSize)
-		}
-	}
-
-	if radius, ok := params["guided_radius"].(int); ok {
-		if radius < 1 || radius > 8 {
-			return fmt.Errorf("guided_radius must be between 1 and 8, got: %d", radius)
-		}
-	}
-
-	if epsilon, ok := params["guided_epsilon"].(float64); ok {
-		if epsilon < 0.001 || epsilon > 0.5 {
-			return fmt.Errorf("guided_epsilon must be between 0.001 and 0.5, got: %f", epsilon)
-		}
-	}
-
 	return nil
 }
 
@@ -102,143 +94,342 @@ func (p *Processor) Process(input *safe.Mat, params map[string]interface{}) (*sa
 }
 
 func (p *Processor) ProcessWithContext(ctx context.Context, input *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
-	log.Printf("DEBUG: Starting ProcessWithContext")
-
 	if err := safe.ValidateMatForOperation(input, "2D Otsu processing"); err != nil {
-		log.Printf("DEBUG: Input validation failed: %v", err)
 		return nil, err
 	}
-	log.Printf("DEBUG: Input Mat valid: %dx%d, channels=%d", input.Cols(), input.Rows(), input.Channels())
 
 	if err := p.ValidateParameters(params); err != nil {
-		log.Printf("DEBUG: Parameter validation failed: %v", err)
 		return nil, fmt.Errorf("parameter validation failed: %w", err)
 	}
-	log.Printf("DEBUG: Parameters validated")
 
-	// Apply preprocessing chain
-	log.Printf("DEBUG: Starting preprocessing")
-	processed, err := p.preprocessor.Execute(ctx, input, params)
+	// Acquire worker from pool
+	select {
+	case <-p.workerPool:
+		defer func() { p.workerPool <- struct{}{} }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	// Get pooled Mats for intermediate operations
+	poolItem := p.matPool.Get().(*matPoolItem)
+	defer p.matPool.Put(poolItem)
+
+	return p.processInternal(ctx, input, params, poolItem)
+}
+
+func (p *Processor) processInternal(ctx context.Context, input *safe.Mat, params map[string]interface{}, poolItem *matPoolItem) (*safe.Mat, error) {
+	// Step 1: Convert to grayscale with context check
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	grayscale, err := p.convertToGrayscale(input)
 	if err != nil {
-		log.Printf("DEBUG: Preprocessing failed: %v", err)
+		return nil, fmt.Errorf("grayscale conversion failed: %w", err)
+	}
+	defer grayscale.Close()
+
+	// Step 2: Apply preprocessing pipeline
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	preprocessed, err := p.applyPreprocessing(ctx, grayscale, params)
+	if err != nil {
 		return nil, fmt.Errorf("preprocessing failed: %w", err)
 	}
-	if processed == nil {
-		log.Printf("DEBUG: Preprocessing returned nil Mat")
-		return nil, fmt.Errorf("preprocessing returned nil Mat")
-	}
-	if err := safe.ValidateMatForOperation(processed, "after preprocessing"); err != nil {
-		log.Printf("DEBUG: Processed Mat invalid after preprocessing: %v", err)
-		processed.Close()
-		return nil, fmt.Errorf("preprocessing produced invalid Mat: %w", err)
-	}
-	log.Printf("DEBUG: Preprocessing completed: %dx%d, channels=%d", processed.Cols(), processed.Rows(), processed.Channels())
-	defer processed.Close()
+	defer preprocessed.Close()
 
-	// Calculate neighborhood means
-	log.Printf("DEBUG: Calculating neighborhood means")
-	neighborhood, err := p.calculateNeighborhoodMeans(processed, params)
+	// Step 3: Calculate neighborhood means
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	neighborhood, err := p.calculateNeighborhoodMeans(preprocessed, params)
 	if err != nil {
-		log.Printf("DEBUG: Neighborhood calculation failed: %v", err)
 		return nil, fmt.Errorf("neighborhood calculation failed: %w", err)
 	}
-	if neighborhood == nil {
-		log.Printf("DEBUG: Neighborhood calculation returned nil")
-		return nil, fmt.Errorf("neighborhood calculation returned nil")
-	}
-	if err := safe.ValidateMatForOperation(neighborhood, "neighborhood calculation"); err != nil {
-		log.Printf("DEBUG: Neighborhood Mat invalid: %v", err)
-		neighborhood.Close()
-		return nil, fmt.Errorf("neighborhood calculation produced invalid Mat: %w", err)
-	}
-	log.Printf("DEBUG: Neighborhood calculation completed: %dx%d", neighborhood.Cols(), neighborhood.Rows())
 	defer neighborhood.Close()
 
-	// Build 2D histogram
-	log.Printf("DEBUG: Building 2D histogram")
-	hist, err := p.histogramCalc.Build(processed, neighborhood, params)
+	// Step 4: Build 2D histogram
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	histogramBuilder := histogram.NewTwoDimensionalBuilder()
+	hist, err := histogramBuilder.Build(preprocessed, neighborhood, params)
 	if err != nil {
-		log.Printf("DEBUG: Histogram calculation failed: %v", err)
 		return nil, fmt.Errorf("histogram calculation failed: %w", err)
 	}
-	if hist == nil || len(hist) == 0 {
-		log.Printf("DEBUG: Histogram calculation returned empty histogram")
-		return nil, fmt.Errorf("histogram calculation returned empty histogram")
-	}
-	log.Printf("DEBUG: Histogram built: %dx%d bins", len(hist), len(hist[0]))
 
-	// Calculate threshold
-	log.Printf("DEBUG: Calculating threshold")
-	threshold, err := p.thresholdCalc.Calculate(hist)
+	// Step 5: Calculate threshold
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	thresholdCalc := threshold.NewOtsu2DCalculator()
+	thresholds, err := thresholdCalc.Calculate(hist)
 	if err != nil {
-		log.Printf("DEBUG: Threshold calculation failed: %v", err)
 		return nil, fmt.Errorf("threshold calculation failed: %w", err)
 	}
-	log.Printf("DEBUG: Threshold calculated: [%.3f, %.3f]", threshold[0], threshold[1])
 
-	// Apply threshold
-	log.Printf("DEBUG: Applying threshold")
-	result, err := p.applyThreshold(processed, neighborhood, threshold, params)
+	// Step 6: Apply threshold
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	result, err := p.applyThreshold(preprocessed, neighborhood, thresholds, params)
 	if err != nil {
-		log.Printf("DEBUG: Threshold application failed: %v", err)
 		return nil, fmt.Errorf("threshold application failed: %w", err)
 	}
-	if result == nil {
-		log.Printf("DEBUG: Threshold application returned nil")
-		return nil, fmt.Errorf("threshold application returned nil")
-	}
-	if err := safe.ValidateMatForOperation(result, "after threshold"); err != nil {
-		log.Printf("DEBUG: Result Mat invalid after threshold: %v", err)
-		result.Close()
-		return nil, fmt.Errorf("threshold application produced invalid Mat: %w", err)
-	}
-	log.Printf("DEBUG: Threshold applied: %dx%d", result.Cols(), result.Rows())
 
-	// Apply postprocessing
-	log.Printf("DEBUG: Starting postprocessing")
-	final, err := p.postprocessor.Execute(ctx, result, params)
+	// Step 7: Apply postprocessing
+	select {
+	case <-ctx.Done():
+		result.Close()
+		return nil, ctx.Err()
+	default:
+	}
+
+	final, err := p.applyPostprocessing(ctx, result, params)
 	if err != nil {
-		log.Printf("DEBUG: Postprocessing failed: %v", err)
 		result.Close()
 		return nil, fmt.Errorf("postprocessing failed: %w", err)
 	}
 	result.Close()
 
-	if final == nil {
-		log.Printf("DEBUG: Postprocessing returned nil")
-		return nil, fmt.Errorf("postprocessing returned nil")
-	}
-	if err := safe.ValidateMatForOperation(final, "final result"); err != nil {
-		log.Printf("DEBUG: Final Mat invalid: %v", err)
-		final.Close()
-		return nil, fmt.Errorf("postprocessing produced invalid Mat: %w", err)
-	}
-	log.Printf("DEBUG: Processing completed successfully: %dx%d", final.Cols(), final.Rows())
-
 	return final, nil
 }
 
-func createPreprocessingChain() *chain.ProcessingChain {
-	return chain.NewProcessingChain([]chain.ProcessingStep{
-		filters.NewGrayscaleConverter(),
-		filters.NewCLAHEFilter(),
-		filters.NewGuidedFilter(),
-		filters.NewGaussianFilter(),
-		filters.NewMAOTSUFilter(),
-	})
+func (p *Processor) convertToGrayscale(src *safe.Mat) (*safe.Mat, error) {
+	if src.Channels() == 1 {
+		return src.Clone()
+	}
+
+	dst, err := safe.NewMat(src.Rows(), src.Cols(), gocv.MatTypeCV8UC1)
+	if err != nil {
+		return nil, err
+	}
+
+	srcMat := src.GetMat()
+	dstMat := dst.GetMat()
+
+	switch src.Channels() {
+	case 3:
+		gocv.CvtColor(srcMat, &dstMat, gocv.ColorBGRToGray)
+	case 4:
+		tempBGR := gocv.NewMat()
+		defer tempBGR.Close()
+		gocv.CvtColor(srcMat, &tempBGR, gocv.ColorBGRAToBGR)
+		gocv.CvtColor(tempBGR, &dstMat, gocv.ColorBGRToGray)
+	default:
+		dst.Close()
+		return nil, fmt.Errorf("unsupported channel count for grayscale conversion: %d", src.Channels())
+	}
+
+	return dst, nil
 }
 
-func createPostprocessingChain() *chain.ProcessingChain {
-	return chain.NewProcessingChain([]chain.ProcessingStep{
-		filters.NewMorphologyFilter(),
-		filters.NewMedianFilter(),
-	})
+func (p *Processor) applyPreprocessing(ctx context.Context, src *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+	current := src
+	needsCleanup := false
+
+	// Apply noise reduction if enabled
+	if useNoise, ok := params["noise_robustness"].(bool); ok && useNoise {
+		select {
+		case <-ctx.Done():
+			if needsCleanup {
+				current.Close()
+			}
+			return nil, ctx.Err()
+		default:
+		}
+
+		filtered, err := p.applyMAOTSUFilter(current)
+		if err != nil {
+			if needsCleanup {
+				current.Close()
+			}
+			return nil, err
+		}
+
+		if needsCleanup {
+			current.Close()
+		}
+		current = filtered
+		needsCleanup = true
+	}
+
+	// Apply CLAHE if enabled
+	if useCLAHE, ok := params["use_clahe"].(bool); ok && useCLAHE {
+		select {
+		case <-ctx.Done():
+			if needsCleanup {
+				current.Close()
+			}
+			return nil, ctx.Err()
+		default:
+		}
+
+		enhanced, err := p.applyCLAHE(current, params)
+		if err != nil {
+			if needsCleanup {
+				current.Close()
+			}
+			return nil, err
+		}
+
+		if needsCleanup {
+			current.Close()
+		}
+		current = enhanced
+		needsCleanup = true
+	}
+
+	// Apply Gaussian smoothing if enabled
+	if useGaussian, ok := params["gaussian_preprocessing"].(bool); ok && useGaussian {
+		select {
+		case <-ctx.Done():
+			if needsCleanup {
+				current.Close()
+			}
+			return nil, ctx.Err()
+		default:
+		}
+
+		smoothed, err := p.applyGaussianSmoothing(current, params)
+		if err != nil {
+			if needsCleanup {
+				current.Close()
+			}
+			return nil, err
+		}
+
+		if needsCleanup {
+			current.Close()
+		}
+		current = smoothed
+		needsCleanup = true
+	}
+
+	if !needsCleanup {
+		return src.Clone()
+	}
+
+	return current, nil
+}
+
+func (p *Processor) applyMAOTSUFilter(src *safe.Mat) (*safe.Mat, error) {
+	// Apply median filter for noise reduction
+	median := gocv.NewMat()
+	defer median.Close()
+
+	srcMat := src.GetMat()
+	gocv.MedianBlur(srcMat, &median, 3)
+
+	// Apply Gaussian for smoothing
+	gaussian := gocv.NewMat()
+	defer gaussian.Close()
+
+	gocv.GaussianBlur(median, &gaussian, image.Point{X: 3, Y: 3}, 0.8, 0.8, gocv.BorderDefault)
+
+	// Create result Mat
+	result, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+
+	// Weighted combination: 60% median + 40% gaussian
+	rows := src.Rows()
+	cols := src.Cols()
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			medVal := median.GetUCharAt(y, x)
+			gausVal := gaussian.GetUCharAt(y, x)
+
+			combined := 0.6*float64(medVal) + 0.4*float64(gausVal)
+			result.SetUCharAt(y, x, uint8(combined))
+		}
+	}
+
+	return result, nil
+}
+
+func (p *Processor) applyCLAHE(src *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+	clipLimit := 3.0
+	if val, ok := params["clahe_clip_limit"].(float64); ok {
+		clipLimit = val
+	}
+
+	tileSize := 8
+	if val, ok := params["clahe_tile_size"].(int); ok {
+		tileSize = val
+	}
+
+	result, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+
+	clahe := gocv.NewCLAHEWithParams(clipLimit, image.Point{X: tileSize, Y: tileSize})
+	defer clahe.Close()
+
+	srcMat := src.GetMat()
+	resultMat := result.GetMat()
+	clahe.Apply(srcMat, &resultMat)
+
+	return result, nil
+}
+
+func (p *Processor) applyGaussianSmoothing(src *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+	sigma := 1.0
+	if val, ok := params["smoothing_strength"].(float64); ok {
+		sigma = val
+	}
+
+	if sigma <= 0.0 {
+		return src.Clone()
+	}
+
+	result, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+
+	kernelSize := int(sigma*6) + 1
+	if kernelSize%2 == 0 {
+		kernelSize++
+	}
+	if kernelSize < 3 {
+		kernelSize = 3
+	}
+	if kernelSize > 15 {
+		kernelSize = 15
+	}
+
+	srcMat := src.GetMat()
+	resultMat := result.GetMat()
+	gocv.GaussianBlur(srcMat, &resultMat, image.Point{X: kernelSize, Y: kernelSize}, sigma, sigma, gocv.BorderDefault)
+
+	return result, nil
 }
 
 func (p *Processor) calculateNeighborhoodMeans(src *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
-	windowSize, ok := params["window_size"].(int)
-	if !ok {
-		windowSize = 7
+	windowSize := 7
+	if val, ok := params["window_size"].(int); ok {
+		windowSize = val
 	}
 
 	calc := filters.NewNeighborhoodCalculator(windowSize)
@@ -248,4 +439,59 @@ func (p *Processor) calculateNeighborhoodMeans(src *safe.Mat, params map[string]
 func (p *Processor) applyThreshold(src, neighborhood *safe.Mat, thresholds [2]float64, params map[string]interface{}) (*safe.Mat, error) {
 	applier := threshold.NewBilinearApplier()
 	return applier.Apply(src, neighborhood, thresholds)
+}
+
+func (p *Processor) applyPostprocessing(ctx context.Context, src *safe.Mat, params map[string]interface{}) (*safe.Mat, error) {
+	// Apply morphological operations for cleanup
+	opened, err := p.applyMorphologicalOpening(src)
+	if err != nil {
+		return nil, err
+	}
+	defer opened.Close()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Apply closing to fill gaps
+	result, err := p.applyMorphologicalClosing(opened)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (p *Processor) applyMorphologicalOpening(src *safe.Mat) (*safe.Mat, error) {
+	result, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+
+	kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: 3, Y: 3})
+	defer kernel.Close()
+
+	srcMat := src.GetMat()
+	resultMat := result.GetMat()
+	gocv.MorphologyEx(srcMat, &resultMat, gocv.MorphOpen, kernel)
+
+	return result, nil
+}
+
+func (p *Processor) applyMorphologicalClosing(src *safe.Mat) (*safe.Mat, error) {
+	result, err := safe.NewMat(src.Rows(), src.Cols(), src.Type())
+	if err != nil {
+		return nil, err
+	}
+
+	kernel := gocv.GetStructuringElement(gocv.MorphEllipse, image.Point{X: 5, Y: 5})
+	defer kernel.Close()
+
+	srcMat := src.GetMat()
+	resultMat := result.GetMat()
+	gocv.MorphologyEx(srcMat, &resultMat, gocv.MorphClose, kernel)
+
+	return result, nil
 }

@@ -16,12 +16,14 @@ type Toolbar struct {
 	saveButton      *widget.Button
 	algorithmSelect *widget.Select
 	processButton   *widget.Button
+	cancelButton    *widget.Button
 	statusLabel     *widget.Label
 	metricsLabel    *widget.Label
 
 	loadHandler            func()
 	saveHandler            func()
 	processHandler         func()
+	cancelHandler          func()
 	algorithmChangeHandler func(string)
 }
 
@@ -33,88 +35,135 @@ func NewToolbar() *Toolbar {
 }
 
 func (t *Toolbar) createComponents() {
-	t.loadButton = widget.NewButton("Load", t.onLoadClicked)
+	// Action buttons with modern styling
+	t.loadButton = widget.NewButton("Load Image", t.onLoadClicked)
 	t.loadButton.Importance = widget.HighImportance
 
-	t.saveButton = widget.NewButton("Save", t.onSaveClicked)
+	t.saveButton = widget.NewButton("Save Result", t.onSaveClicked)
 	t.saveButton.Importance = widget.HighImportance
+	t.saveButton.Disable() // Disabled until processing completes
 
 	t.processButton = widget.NewButton("Process", t.onProcessClicked)
 	t.processButton.Importance = widget.HighImportance
+	t.processButton.Disable() // Disabled until image loaded
 
+	t.cancelButton = widget.NewButton("Cancel", t.onCancelClicked)
+	t.cancelButton.Importance = widget.MediumImportance
+	t.cancelButton.Disable() // Disabled until processing starts
+
+	// Algorithm selection
 	t.algorithmSelect = widget.NewSelect(
 		[]string{"2D Otsu", "Iterative Triclass"},
 		t.onAlgorithmChanged,
 	)
 	t.algorithmSelect.SetSelected("2D Otsu")
 
+	// Status and metrics display
 	t.statusLabel = widget.NewLabel("Ready")
 	t.metricsLabel = widget.NewLabel("IoU: -- | Dice: -- | Error: --")
 }
 
 func (t *Toolbar) buildLayout() {
-	background := canvas.NewRectangle(color.RGBA{R: 250, G: 249, B: 245, A: 255})
-	border := canvas.NewRectangle(color.Transparent)
-	border.StrokeWidth = 1.0
-	border.StrokeColor = color.RGBA{R: 231, G: 231, B: 231, A: 255}
+	// Create modern background with subtle styling
+	background := canvas.NewRectangle(color.RGBA{R: 248, G: 249, B: 250, A: 255})
 
-	leftSection := container.NewHBox(t.loadButton, t.saveButton)
+	// Action buttons section
+	actionSection := container.NewHBox(
+		t.loadButton,
+		widget.NewSeparator(),
+		t.saveButton,
+	)
 
+	// Algorithm selection section
 	algorithmGroup := container.NewVBox(
 		widget.NewLabel("Algorithm"),
 		t.algorithmSelect,
 	)
 
+	// Processing control section
 	processGroup := container.NewVBox(
-		widget.NewLabel("Action"),
-		t.processButton,
+		widget.NewLabel("Processing"),
+		container.NewHBox(t.processButton, t.cancelButton),
 	)
 
-	centerSection := container.NewHBox(
+	// Status section
+	statusGroup := container.NewVBox(
+		widget.NewLabel("Status"),
+		t.statusLabel,
+	)
+
+	// Metrics section
+	metricsGroup := container.NewVBox(
+		widget.NewLabel("Quality Metrics"),
+		t.metricsLabel,
+	)
+
+	// Main content layout
+	content := container.NewHBox(
+		actionSection,
+		widget.NewSeparator(),
 		algorithmGroup,
 		widget.NewSeparator(),
 		processGroup,
+		widget.NewSeparator(),
+		statusGroup,
+		widget.NewSeparator(),
+		metricsGroup,
 	)
 
-	statusSection := container.NewHBox(t.statusLabel)
-	rightSection := container.NewHBox(t.metricsLabel)
-
-	content := container.NewBorder(
-		nil, nil,
-		leftSection,
-		rightSection,
-		container.NewHBox(centerSection, widget.NewSeparator(), statusSection),
-	)
-
+	// Apply padding and background
 	t.container = container.NewStack(
-		border,
-		container.NewPadded(
-			container.NewStack(background, container.NewPadded(content)),
-		),
+		background,
+		container.NewPadded(content),
 	)
 }
 
 func (t *Toolbar) onLoadClicked() {
 	if t.loadHandler != nil {
-		t.loadHandler()
+		// Use fyne.Do for thread safety in Fyne v2.6+
+		fyne.Do(func() {
+			t.loadHandler()
+		})
 	}
 }
 
 func (t *Toolbar) onSaveClicked() {
 	if t.saveHandler != nil {
-		t.saveHandler()
+		fyne.Do(func() {
+			t.saveHandler()
+		})
 	}
 }
 
 func (t *Toolbar) onProcessClicked() {
 	if t.processHandler != nil {
-		t.processHandler()
+		// Enable cancel button, disable process button during processing
+		t.processButton.Disable()
+		t.cancelButton.Enable()
+
+		fyne.Do(func() {
+			t.processHandler()
+		})
+	}
+}
+
+func (t *Toolbar) onCancelClicked() {
+	if t.cancelHandler != nil {
+		fyne.Do(func() {
+			t.cancelHandler()
+		})
+
+		// Reset button states
+		t.cancelButton.Disable()
+		t.processButton.Enable()
 	}
 }
 
 func (t *Toolbar) onAlgorithmChanged(algorithm string) {
 	if t.algorithmChangeHandler != nil {
-		t.algorithmChangeHandler(algorithm)
+		fyne.Do(func() {
+			t.algorithmChangeHandler(algorithm)
+		})
 	}
 }
 
@@ -122,6 +171,7 @@ func (t *Toolbar) GetContainer() *fyne.Container {
 	return t.container
 }
 
+// Event handler setters
 func (t *Toolbar) SetLoadHandler(handler func()) {
 	t.loadHandler = handler
 }
@@ -134,39 +184,93 @@ func (t *Toolbar) SetProcessHandler(handler func()) {
 	t.processHandler = handler
 }
 
+func (t *Toolbar) SetCancelHandler(handler func()) {
+	t.cancelHandler = handler
+}
+
 func (t *Toolbar) SetAlgorithmChangeHandler(handler func(string)) {
 	t.algorithmChangeHandler = handler
 }
 
+// UI state management methods
 func (t *Toolbar) SetStatus(status string) {
-	t.statusLabel.SetText(status)
+	fyne.Do(func() {
+		t.statusLabel.SetText(status)
+
+		// Update button states based on status
+		switch status {
+		case "Ready":
+			t.processButton.Enable()
+			t.cancelButton.Disable()
+			t.saveButton.Enable()
+		case "Loading image...", "Saving image...":
+			t.processButton.Disable()
+			t.cancelButton.Disable()
+		case "Starting processing...", "Processing":
+			t.processButton.Disable()
+			t.cancelButton.Enable()
+			t.saveButton.Disable()
+		case "Processing completed":
+			t.processButton.Enable()
+			t.cancelButton.Disable()
+			t.saveButton.Enable()
+		case "Processing cancelled", "Processing failed":
+			t.processButton.Enable()
+			t.cancelButton.Disable()
+		}
+	})
 }
 
-func (t *Toolbar) SetProgress(progress string) {
-	// Progress display removed - handled through status messages
-}
-
-func (t *Toolbar) SetStage(stage string) {
-	// Stage display removed - handled through status messages
-}
-
-// SetMetrics displays segmentation quality metrics instead of PSNR/SSIM
 func (t *Toolbar) SetMetrics(iou, dice, misclassError float64) {
-	if iou >= 0 && dice >= 0 && misclassError >= 0 {
-		text := fmt.Sprintf("IoU: %.3f | Dice: %.3f | Error: %.3f", iou, dice, misclassError)
-		t.metricsLabel.SetText(text)
-	} else {
-		t.metricsLabel.SetText("IoU: -- | Dice: -- | Error: --")
-	}
+	t.SetSegmentationMetrics(iou, dice, misclassError, -1, -1)
 }
 
-// SetSegmentationMetrics displays comprehensive segmentation metrics
 func (t *Toolbar) SetSegmentationMetrics(iou, dice, misclassError, uniformity, boundaryAccuracy float64) {
-	if iou >= 0 && dice >= 0 {
-		// Primary metrics in main display
-		t.SetMetrics(iou, dice, misclassError)
-		// Note: Tooltip functionality removed as requested
-	} else {
-		t.metricsLabel.SetText("IoU: -- | Dice: -- | Error: --")
-	}
+	fyne.Do(func() {
+		if iou >= 0 && dice >= 0 {
+			if misclassError >= 0 {
+				text := fmt.Sprintf("IoU: %.3f | Dice: %.3f | Error: %.3f", iou, dice, misclassError)
+				t.metricsLabel.SetText(text)
+			} else {
+				text := fmt.Sprintf("IoU: %.3f | Dice: %.3f | Error: --", iou, dice)
+				t.metricsLabel.SetText(text)
+			}
+		} else {
+			t.metricsLabel.SetText("IoU: -- | Dice: -- | Error: --")
+		}
+	})
+}
+
+// Convenience methods for enabling/disabling functionality
+func (t *Toolbar) EnableImageLoaded() {
+	fyne.Do(func() {
+		t.processButton.Enable()
+	})
+}
+
+func (t *Toolbar) EnableProcessingCompleted() {
+	fyne.Do(func() {
+		t.processButton.Enable()
+		t.cancelButton.Disable()
+		t.saveButton.Enable()
+	})
+}
+
+func (t *Toolbar) DisableAllControls() {
+	fyne.Do(func() {
+		t.loadButton.Disable()
+		t.saveButton.Disable()
+		t.processButton.Disable()
+		t.cancelButton.Disable()
+		t.algorithmSelect.Disable()
+	})
+}
+
+func (t *Toolbar) EnableAllControls() {
+	fyne.Do(func() {
+		t.loadButton.Enable()
+		t.saveButton.Enable()
+		t.processButton.Enable()
+		t.algorithmSelect.Enable()
+	})
 }
