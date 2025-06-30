@@ -1,13 +1,67 @@
-[6:55:44 PM] % ./build.sh debug memory
-[18:55:44] Validating build environment...
+[3:16:44 AM] % ./build.sh debug memory
+[03:16:45] Validating build environment...
 ✓ Go 1.24 detected (supports Swiss Tables optimization)
 ✓ OpenCV4 4.11.0 found (recommended)
 ✓ Build environment validated - ready for modern development
-[18:55:44] Running with memory debugging and GoCV Mat profiling
-gc 1 @0.016s 2%: 0.004+1.3+0.001 ms clock, 0.004+0.11/0.34/0+0.001 ms cpu, 3->3->0 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 1 P
-gc 2 @0.034s 3%: 0.010+1.9+0.001 ms clock, 0.010+0.14/0.55/0+0.001 ms cpu, 3->4->1 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 1 P
-gc 3 @0.039s 5%: 0.008+2.0+0 ms clock, 0.008+0.88/0/0+0 ms cpu, 3->4->2 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 1 P
-gc 4 @0.044s 6%: 0.003+4.0+0 ms clock, 0.003+1.3/0/0+0 ms cpu, 4->6->4 MB, 5 MB goal, 0 MB stacks, 0 MB globals, 1 P
-internal/processing/filters/grayscale.go:6:2: package otsu-obliterator/internal/opencv/conversion is not in std (/opt/homebrew/Cellar/go/1.24.4/libexec/src/otsu-obliterator/internal/opencv/conversion)
+[03:16:45] Running with memory debugging and GoCV Mat profiling
+gc 1 @0.029s 2%: 0.005+7.3+0.001 ms clock, 0.005+0.20/0.77/0+0.001 ms cpu, 3->4->1 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 2 @0.065s 2%: 0.007+9.2+0.002 ms clock, 0.007+0.045/0.57/0.11+0.002 ms cpu, 3->3->1 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 3 @0.078s 3%: 0.009+1.5+0 ms clock, 0.009+0.53/0.37/0+0 ms cpu, 3->3->2 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 4 @0.081s 4%: 0.003+3.5+0 ms clock, 0.003+1.1/0/0+0 ms cpu, 3->4->3 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 5 @0.092s 5%: 0.005+3.5+0 ms clock, 0.005+0.75/0.94/0+0 ms cpu, 6->6->4 MB, 7 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 6 @0.156s 4%: 0.094+3.4+0.001 ms clock, 0.094+0.090/0.94/1.2+0.001 ms cpu, 8->8->4 MB, 9 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 7 @0.178s 4%: 0.024+3.6+0.001 ms clock, 0.024+0.091/1.0/0.92+0.001 ms cpu, 8->9->5 MB, 10 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 8 @0.203s 4%: 0.032+3.8+0.001 ms clock, 0.032+0.34/0.99/0.83+0.001 ms cpu, 9->9->5 MB, 10 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 9 @0.229s 4%: 0.021+3.4+0.001 ms clock, 0.021+0/0.95/1.2+0.001 ms cpu, 9->9->4 MB, 11 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 10 @0.252s 4%: 0.027+3.3+0.001 ms clock, 0.027+0/0.91/1.2+0.001 ms cpu, 8->8->5 MB, 10 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 11 @0.283s 4%: 0.036+3.1+0.001 ms clock, 0.036+0/0.93/1.2+0.001 ms cpu, 8->9->5 MB, 10 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 12 @0.318s 3%: 0.028+3.0+0.001 ms clock, 0.028+0/0.93/1.1+0.001 ms cpu, 8->8->4 MB, 10 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 13 @0.341s 3%: 0.024+3.1+0.001 ms clock, 0.024+0.046/0.77/1.2+0.001 ms cpu, 8->8->4 MB, 9 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 14 @0.375s 4%: 0.031+5.4+0.001 ms clock, 0.031+1.8/0.11/0.16+0.001 ms cpu, 9->10->5 MB, 10 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 15 @0.438s 3%: 0.091+3.8+0.001 ms clock, 0.091+0/0.98/1.3+0.001 ms cpu, 9->10->5 MB, 11 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 16 @0.480s 3%: 0.061+4.5+0.001 ms clock, 0.061+2.3/0/0+0.001 ms cpu, 9->10->6 MB, 10 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 17 @0.513s 3%: 0.020+3.2+0.001 ms clock, 0.020+0/0.92/1.2+0.001 ms cpu, 11->11->5 MB, 13 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 18 @0.536s 3%: 0.028+4.0+0.001 ms clock, 0.028+0/1.1/1.1+0.001 ms cpu, 9->9->5 MB, 10 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 19 @0.570s 3%: 0.023+3.5+0.001 ms clock, 0.023+0.12/0.92/1.1+0.001 ms cpu, 10->10->5 MB, 11 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 20 @0.600s 3%: 0.032+2.8+0.001 ms clock, 0.032+0/0.72/1.5+0.001 ms cpu, 9->10->5 MB, 11 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 21 @0.638s 3%: 0.089+4.4+0.014 ms clock, 0.089+0.056/0.80/1.9+0.014 ms cpu, 9->9->5 MB, 11 MB goal, 0 MB stacks, 0 MB globals, 1 P
+# otsu-obliterator/internal/processing/filters
+internal/processing/filters/grayscale.go:13:6: GrayscaleConverter redeclared in this block
+	internal/processing/filters/filters.go:15:6: other declaration of GrayscaleConverter
+internal/processing/filters/grayscale.go:16:6: NewGrayscaleConverter redeclared in this block
+	internal/processing/filters/filters.go:17:6: other declaration of NewGrayscaleConverter
+internal/processing/filters/grayscale.go:21:30: method GrayscaleConverter.Name already declared at internal/processing/filters/filters.go:21:30
+internal/processing/filters/grayscale.go:26:30: method GrayscaleConverter.ShouldExecute already declared at internal/processing/filters/filters.go:25:30
+internal/processing/filters/grayscale.go:31:30: method GrayscaleConverter.Apply already declared at internal/processing/filters/filters.go:29:30
+internal/processing/filters/grayscale.go:46:30: method GrayscaleConverter.convertToGrayscale already declared at internal/processing/filters/filters.go:43:30
+# otsu-obliterator/internal/processing/threshold
+internal/processing/threshold/threshold.go:12:6: Otsu2DCalculator redeclared in this block
+	internal/processing/threshold/otsu2d.go:9:6: other declaration of Otsu2DCalculator
+internal/processing/threshold/threshold.go:14:6: NewOtsu2DCalculator redeclared in this block
+	internal/processing/threshold/otsu2d.go:11:6: other declaration of NewOtsu2DCalculator
+internal/processing/threshold/threshold.go:18:28: method Otsu2DCalculator.Calculate already declared at internal/processing/threshold/otsu2d.go:15:28
+internal/processing/threshold/threshold.go:26:28: method Otsu2DCalculator.find2DOtsuThresholdDecomposed already declared at internal/processing/threshold/otsu2d.go:23:28
+internal/processing/threshold/threshold.go:63:28: method Otsu2DCalculator.calculateBetweenClassVariance already declared at internal/processing/threshold/otsu2d.go:60:28
+internal/processing/threshold/threshold.go:118:6: BilinearApplier redeclared in this block
+	internal/processing/threshold/otsu2d.go:114:6: other declaration of BilinearApplier
+internal/processing/threshold/threshold.go:120:6: NewBilinearApplier redeclared in this block
+	internal/processing/threshold/otsu2d.go:116:6: other declaration of NewBilinearApplier
+internal/processing/threshold/threshold.go:124:27: method BilinearApplier.Apply already declared at internal/processing/threshold/otsu2d.go:120:27
+internal/processing/threshold/triclass.go:11:6: TriclassCalculator redeclared in this block
+	internal/processing/threshold/threshold.go:178:6: other declaration of TriclassCalculator
+internal/processing/threshold/triclass.go:13:6: NewTriclassCalculator redeclared in this block
+	internal/processing/threshold/threshold.go:180:6: other declaration of NewTriclassCalculator
+internal/processing/threshold/threshold.go:124:27: too many errors
+# otsu-obliterator/internal/opencv/conversion
+internal/opencv/conversion/mat_utils.go:68:45: too many arguments in call to srcMat.ConvertTo
+	have (*gocv.Mat, int, float64, float64)
+	want (*gocv.Mat, gocv.MatType)
+internal/opencv/conversion/mat_utils.go:91:36: undefined: gocv.Point
+# log/slog
+gc 1 @0.075s 6%: 0.005+18+0.003 ms clock, 0.005+0.87/5.5/0+0.003 ms cpu, 38->40->14 MB, 40 MB goal, 0 MB stacks, 0 MB globals, 1 P
+gc 22 @1.046s 2%: 0.088+4.2+0.010 ms clock, 0.088+0.056/1.0/1.3+0.010 ms cpu, 9->9->5 MB, 10 MB goal, 0 MB stacks, 0 MB globals, 1 P
+# otsu-obliterator/internal/views/components
+internal/views/components/image_display.go:120:17: cannot use id.splitView (variable of type *container.Split) as *fyne.Container value in assignment
+gc 23 @1.401s 1%: 0.041+4.1+0.001 ms clock, 0.041+0.056/1.1/1.1+0.001 ms cpu, 9->9->5 MB, 11 MB goal, 0 MB stacks, 0 MB globals, 1 P
 ✗ Build script failed with exit code 1
-[6:57:32 PM] % 
+[3:17:01 AM] % 
